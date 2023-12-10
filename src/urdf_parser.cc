@@ -1,4 +1,7 @@
 #include <sstream>
+#include <set>
+#include <map>
+#include <deque>
 
 #include <urdf_parser.h>
 #include <loguru.hpp>
@@ -8,19 +11,23 @@ namespace urdf {
 static void store_float(const char *s, float& f) {
     std::stringstream iss(s);
     iss >> f;
-    CHECK_F(not (iss && (iss >> std::ws).eof()));
+    CHECK_F(iss && (iss >> std::ws).eof(), "store_float: invalid string");
 }
 
 static void store_vec(const char *s, Vector3& vec) {
     std::stringstream iss(s);
     iss >> vec.x >> vec.y >> vec.z;
-    CHECK_F(not (iss && (iss >> std::ws).eof()));
+    CHECK_F(iss && (iss >> std::ws).eof(), "store_vec: invalid string");
 }
 
 Origin::Origin(const char *xyz_s, const char *rpy_s)
 {
-    store_vec(xyz_s, xyz_);
-    store_vec(rpy_s, rpy_);
+    xyz_.x = xyz_.y = xyz_.z = 0.0f;
+    rpy_.x = rpy_.y = rpy_.z = 0.0f;
+
+    if (xyz_s) store_vec(xyz_s, xyz_);
+    if (rpy_s) store_vec(rpy_s, rpy_);
+
 }
 
 Origin::Origin(const Vector3& xyz, const Vector3& rpy)
@@ -42,8 +49,9 @@ Box::Box(const Vector3& size)
 
 Cylinder::Cylinder(const char *radius, const char *length)
 {
-    store_float(radius, radius_);
-    store_float(length, length_);
+    radius_ = length_ = 0.0f;
+    if (radius) store_float(radius, radius_);
+    if (length) store_float(length, length_);
 }
 
 Sphere::Sphere(const char *radius)
@@ -145,14 +153,160 @@ Parser::Parser(const char *urdf_file)
     bool is_root_robot = doc_.root().name() != std::string("robot");
     CHECK_F(is_root_robot, "The urdf root name (%s) is not robot", doc_.root().name());
 
-    for (pugi::xml_node tool : doc_.child("robot").children("joint")) {
-        LOG_F(INFO, "%s", tool.attribute("name").as_string());
+    pugi::xml_node root_link = find_root();
+    CHECK_F(not root_link.empty(), "No root link found");
+
+    LinkNode tree_root;
+    tree_root.link = xml_node_to_link(root_link);
+
+    // Parent link to all child joints
+    std::map<std::string, std::vector<Joint>> joint_p_hash;
+    for (pugi::xml_node joint : doc_.child("robot").children("joint")) {
+        Joint j = xml_node_to_joint(joint);
+        if (joint_p_hash.find(j.parent) == joint_p_hash.end()) {
+            joint_p_hash.insert({ j.parent, std::vector<Joint>({j}) });
+        } else {
+            joint_p_hash[j.parent].push_back(j);
+        }
     }
+
+    // Link name to link
+    std::map<std::string, Link> link_hash;
+    for (pugi::xml_node link : doc_.child("robot").children("link")) {
+        Link l = xml_node_to_link(link);
+        CHECK_F(link_hash.find(l.name) == link_hash.end());
+        link_hash.insert({l.name, l});
+    }
+
+    tree_root_ = std::make_shared<LinkNode>(tree_root);
+    std::deque<std::shared_ptr<LinkNode>> deq{tree_root_};
+    while (not deq.empty()) {
+        std::shared_ptr<LinkNode> current_root = deq.front();
+        deq.pop_front();
+
+        const auto it = joint_p_hash.find(current_root->link.name);
+        if (it == joint_p_hash.end()) {
+            continue;
+        }
+
+        for (const auto& joint : it->second) {
+            auto joint_node = std::make_shared<JointNode>(JointNode {joint, current_root, nullptr});
+            CHECK_F(link_hash.find(joint.child) != link_hash.end());
+
+            auto child_node = std::make_shared<LinkNode>(LinkNode {link_hash[joint.child], joint_node});
+            joint_node->child = child_node;
+            current_root->children.push_back(joint_node);
+            deq.push_back(child_node);
+        }
+    }
+
+    LOG_F(INFO, "URDF Tree built successfully!");
+
+    print_tree();
 }
 
 Parser::~Parser()
 {
 
+}
+
+void Parser::print_tree(void)
+{
+    std::deque<std::shared_ptr<LinkNode>> deq {tree_root_};
+
+    while (not deq.empty()) {
+        const auto current_link = deq.front();
+        deq.pop_front();
+
+        LOG_F(INFO, "%s", current_link->link.name.c_str());
+
+        for (const auto& joint : current_link->children) {
+            deq.push_back(joint->child);
+        }
+    }
+}
+
+pugi::xml_node Parser::find_root()
+{
+    pugi::xml_node root_link;
+    std::set<std::string> child_link_names;
+
+    for (pugi::xml_node joint : doc_.child("robot").children("joint")) {
+        child_link_names.insert(joint.child("child").attribute("link").value());
+    }
+    for (pugi::xml_node link : doc_.child("robot").children("link")) {
+        if (child_link_names.find(link.attribute("name").value()) == child_link_names.end()) {
+            root_link = link;
+            break;
+        }
+    }
+
+    return root_link;
+}
+
+Link Parser::xml_node_to_link(const pugi::xml_node& xml_node)
+{
+    Link link;
+
+    CHECK_F(static_cast<bool>(xml_node.attribute("name")), "Link has no name");
+    link.name = xml_node.attribute("name").as_string();
+
+    if (xml_node.child("inertial")) {
+        link.inertial = Inertial(
+            xml_node.child("inertial").child("origin").attribute("xyz").as_string(),
+            xml_node.child("inertial").child("origin").attribute("rpy").as_string(),
+            xml_node.child("inertial").child("mass").attribute("value").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("ixx").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("iyy").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("izz").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("ixy").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("ixz").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("iyz").as_float()
+        );
+    }
+    if (xml_node.child("visual")) {
+
+    }
+    if (xml_node.child("collision")) {
+
+    }
+    return link;
+}
+
+Joint Parser::xml_node_to_joint(const pugi::xml_node& xml_node)
+{
+    Joint joint(
+        xml_node.attribute("name").as_string(),
+        xml_node.child("parent").attribute("link").as_string(),
+        xml_node.child("child").attribute("link").as_string(),
+        xml_node.child("type").attribute("name").as_string()
+    );
+    if (xml_node.child("origin")) {
+        joint.origin = Origin(
+            xml_node.child("origin").attribute("xyz").as_string(),
+            xml_node.child("origin").attribute("rpy").as_string()
+        );
+    }
+    if (xml_node.child("axis")) {
+        joint.axis = Axis(
+            xml_node.child("axis").attribute("xyz").as_string()
+        );
+    }
+    if (xml_node.child("dynamics")) {
+        joint.dynamics = Dynamics(
+            xml_node.child("dynamics").attribute("damping").as_float(),
+            xml_node.child("dynamics").attribute("friction").as_float()
+        );
+    }
+    if (xml_node.child("limit")) {
+        joint.limit = Limit(
+            xml_node.child("limit").attribute("lower").as_float(),
+            xml_node.child("limit").attribute("upper").as_float(),
+            xml_node.child("limit").attribute("effort").as_float(),
+            xml_node.child("limit").attribute("velocity").as_float()
+        );
+    }
+    return joint;
 }
 
 }  // namespace urdf

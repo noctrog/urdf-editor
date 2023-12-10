@@ -1,5 +1,7 @@
+#include <vector>
 #include <variant>
 #include <optional>
+#include <memory>
 
 #include <pugixml.hpp>
 #include <raylib.h>
@@ -117,9 +119,10 @@ struct Limit
 struct Link {
     Link();
 
-    std::optional<Inertial> inertial_;
-    std::optional<Visual> visual_;
-    std::optional<Collision> collision_;
+    std::string name;
+    std::optional<Inertial> inertial;
+    std::optional<Visual> visual;
+    std::optional<Collision> collision;
 };
 
 struct Joint {
@@ -141,13 +144,38 @@ struct Joint {
     // TODO: mimic
 };
 
+struct LinkNode;
+struct JointNode;
+
+struct LinkNode
+{
+    Link link;
+    std::shared_ptr<JointNode> parent;
+    std::vector<std::shared_ptr<JointNode>> children;
+};
+
+struct JointNode
+{
+    Joint joint;
+    std::shared_ptr<LinkNode> parent;
+    std::shared_ptr<LinkNode> child;
+};
+
 class Parser {
 public:
     Parser(const char *urdf_file);
     ~Parser();
 
+    void print_tree(void);
+
 private:
+    pugi::xml_node find_root();
+
+    Link xml_node_to_link(const pugi::xml_node& xml_node);
+    Joint xml_node_to_joint(const pugi::xml_node& xml_node);
+
     pugi::xml_document doc_;
+    std::shared_ptr<LinkNode> tree_root_;
 };
 
 } // namespace urdf

@@ -22,8 +22,13 @@
 //------------------------------------------------------------------------------------
 int main(int argc, char* argv[])
 {
+    loguru::init(argc, argv);
+
     // Initialization
     //--------------------------------------------------------------------------------------
+    const char *urdf_file = "./resources/simple.urdf";
+    urdf::Parser urdf_parser(urdf_file);
+
     const int screenWidth = 800;
     const int screenHeight = 450;
 
@@ -35,9 +40,6 @@ int main(int argc, char* argv[])
 
     SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
     //--------------------------------------------------------------------------------------
-
-    const char *urdf_file = "./resources/simple.urdf";
-    urdf::Parser urdf_parser(urdf_file);
 
     // Main game loop
     while (!WindowShouldClose())    // Detect window close button or ESC key
