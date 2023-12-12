@@ -17,6 +17,7 @@ struct Origin {
 };
 
 struct Box {
+    Box();
     Box(const char *size);
     Box(const Vector3& size);
 
@@ -24,6 +25,7 @@ struct Box {
 };
 
 struct Cylinder {
+    Cylinder();
     Cylinder(const char *radius, const char *length);
     Cylinder(float radius, float length);
 
@@ -32,30 +34,29 @@ struct Cylinder {
 };
 
 struct Sphere {
+    Sphere();
     Sphere(const char *radius);
     Sphere(float radius);
 
     float radius_;
 };
 
+struct Mesh {
+    std::string filename;
+};
+
 // TODO: implement mesh geometry
 
-using GeometryType = std::variant<Box, Cylinder, Sphere>;
+using GeometryType = std::variant<Box, Cylinder, Sphere, Mesh>;
 
 struct Geometry {
-    Geometry(const GeometryType& geom);
-
-    GeometryType geom_;
+    GeometryType type;
 };
 
 struct Material {
-    Material(const char *name);
-    Material(const char *name, const Vector4& rgba);
-    Material(const char *name, const char *texture_file);
-
-    std::string name_;
-    Vector4 rgba_;
-    std::string texture_file_;
+    std::optional<std::string> name;
+    std::optional<Vector4> rgba;
+    std::optional<std::string> texture_file;
 };
 
 struct Inertia {
@@ -76,20 +77,16 @@ struct Inertial {
 };
 
 struct Visual {
-    Visual(const char *name, Origin *origin_p, Geometry *geometry_p, Material *material_p);
-
-    std::string name_;
-    Origin origin_;
-    Geometry geometry_;
-    Material material_;
+    std::optional<std::string> name;
+    std::optional<Origin> origin;
+    Geometry geometry;
+    std::optional<Material> material;
 };
 
 struct Collision {
-    Collision(const char *name, Origin *origin_p, Geometry *geometry_p);
-
-    std::string name_;
-    Origin origin_;
-    Geometry geometry_;
+    std::optional<std::string> name;
+    std::optional<Origin> origin;
+    Geometry geometry;
 };
 
 struct Axis {
@@ -152,6 +149,9 @@ struct LinkNode
     Link link;
     std::shared_ptr<JointNode> parent;
     std::vector<std::shared_ptr<JointNode>> children;
+
+    Model visual_model;
+    Model collision_model;
 };
 
 struct JointNode
@@ -166,7 +166,9 @@ public:
     Parser(const char *urdf_file);
     ~Parser();
 
-    void print_tree(void);
+    std::shared_ptr<LinkNode> build_robot(void);
+
+    void print_tree(std::shared_ptr<LinkNode> tree_root);
 
 private:
     pugi::xml_node find_root();
@@ -174,8 +176,12 @@ private:
     Link xml_node_to_link(const pugi::xml_node& xml_node);
     Joint xml_node_to_joint(const pugi::xml_node& xml_node);
 
+    std::optional<Inertial> xml_node_to_inertial(const pugi::xml_node& xml_node);
+    std::optional<Origin> xml_node_to_origin(const pugi::xml_node& xml_node);
+    Geometry xml_node_to_geometry(const pugi::xml_node& xml_node);
+    std::optional<Material> xml_node_to_material(const pugi::xml_node& xml_node);
+
     pugi::xml_document doc_;
-    std::shared_ptr<LinkNode> tree_root_;
 };
 
 } // namespace urdf

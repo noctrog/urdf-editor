@@ -28,6 +28,7 @@ int main(int argc, char* argv[])
     //--------------------------------------------------------------------------------------
     const char *urdf_file = "./resources/simple.urdf";
     urdf::Parser urdf_parser(urdf_file);
+    std::shared_ptr<urdf::LinkNode> robot = urdf_parser.build_robot();
 
     const int screenWidth = 800;
     const int screenHeight = 450;

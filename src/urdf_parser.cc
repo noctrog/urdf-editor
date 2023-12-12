@@ -14,10 +14,16 @@ static void store_float(const char *s, float& f) {
     CHECK_F(iss && (iss >> std::ws).eof(), "store_float: invalid string");
 }
 
-static void store_vec(const char *s, Vector3& vec) {
+static void store_vec3(const char *s, Vector3& vec) {
     std::stringstream iss(s);
     iss >> vec.x >> vec.y >> vec.z;
-    CHECK_F(iss && (iss >> std::ws).eof(), "store_vec: invalid string");
+    CHECK_F(iss && (iss >> std::ws).eof(), "store_vec3: invalid string");
+}
+
+static void store_vec4(const char *s, Vector4& vec) {
+    std::stringstream iss(s);
+    iss >> vec.x >> vec.y >> vec.z >> vec.w;
+    CHECK_F(iss && (iss >> std::ws).eof(), "store_vec4: invalid string");
 }
 
 Origin::Origin(const char *xyz_s, const char *rpy_s)
@@ -25,8 +31,8 @@ Origin::Origin(const char *xyz_s, const char *rpy_s)
     xyz_.x = xyz_.y = xyz_.z = 0.0f;
     rpy_.x = rpy_.y = rpy_.z = 0.0f;
 
-    if (xyz_s) store_vec(xyz_s, xyz_);
-    if (rpy_s) store_vec(rpy_s, rpy_);
+    if (xyz_s) store_vec3(xyz_s, xyz_);
+    if (rpy_s) store_vec3(rpy_s, rpy_);
 
 }
 
@@ -36,9 +42,14 @@ Origin::Origin(const Vector3& xyz, const Vector3& rpy)
 
 }
 
+Box::Box()
+{
+    size_.x = size_.y = size_.z = 1.0f;
+}
+
 Box::Box(const char *size)
 {
-    store_vec(size, size_);
+    store_vec3(size, size_);
 }
 
 Box::Box(const Vector3& size)
@@ -47,11 +58,21 @@ Box::Box(const Vector3& size)
 
 }
 
+Cylinder::Cylinder()
+{
+    radius_ = length_ = 1.0f;
+}
+
 Cylinder::Cylinder(const char *radius, const char *length)
 {
     radius_ = length_ = 0.0f;
     if (radius) store_float(radius, radius_);
     if (length) store_float(length, length_);
+}
+
+Sphere::Sphere()
+{
+    radius_ = 1.0f;
 }
 
 Sphere::Sphere(const char *radius)
@@ -63,32 +84,6 @@ Sphere::Sphere(float radius)
     : radius_(radius)
 {
 
-}
-
-Geometry::Geometry(const GeometryType& geom)
-    :geom_(geom)
-{
-
-}
-
-Material::Material(const char *name)
-    : name_(name)
-{
-    rgba_.x = rgba_.y = rgba_.z = 0.3f;
-    rgba_.w = 1.0f;
-}
-
-Material::Material(const char *name, const Vector4& rgba)
-    : name_(name), rgba_(rgba)
-{
-
-}
-
-Material::Material(const char *name, const char *texture_file)
-    : name_(name), texture_file_(texture_file)
-{
-    rgba_.x = rgba_.y = rgba_.z = 0.3f;
-    rgba_.w = 1.0f;
 }
 
 Inertia::Inertia(float ixx, float iyy, float izz, float ixy, float ixz, float iyz)
@@ -110,7 +105,7 @@ Axis::Axis(const Vector3& _xyz) : xyz(_xyz) { }
 
 Axis::Axis(const char *s)
 {
-    store_vec(s, xyz);
+    store_vec3(s, xyz);
 }
 
 Dynamics::Dynamics(float _damping, float _friction) : damping(_damping), friction(_friction) { }
@@ -152,12 +147,20 @@ Parser::Parser(const char *urdf_file)
 
     bool is_root_robot = doc_.root().name() != std::string("robot");
     CHECK_F(is_root_robot, "The urdf root name (%s) is not robot", doc_.root().name());
+}
 
+Parser::~Parser()
+{
+
+}
+
+std::shared_ptr<LinkNode> Parser::build_robot(void)
+{
     pugi::xml_node root_link = find_root();
     CHECK_F(not root_link.empty(), "No root link found");
 
-    LinkNode tree_root;
-    tree_root.link = xml_node_to_link(root_link);
+    auto tree_root = std::make_shared<LinkNode>();
+    tree_root->link = xml_node_to_link(root_link);
 
     // Parent link to all child joints
     std::map<std::string, std::vector<Joint>> joint_p_hash;
@@ -178,8 +181,8 @@ Parser::Parser(const char *urdf_file)
         link_hash.insert({l.name, l});
     }
 
-    tree_root_ = std::make_shared<LinkNode>(tree_root);
-    std::deque<std::shared_ptr<LinkNode>> deq{tree_root_};
+    // tree_root_ = std::make_shared<LinkNode>(tree_root);
+    std::deque<std::shared_ptr<LinkNode>> deq{tree_root};
     while (not deq.empty()) {
         std::shared_ptr<LinkNode> current_root = deq.front();
         deq.pop_front();
@@ -202,17 +205,12 @@ Parser::Parser(const char *urdf_file)
 
     LOG_F(INFO, "URDF Tree built successfully!");
 
-    print_tree();
+    return tree_root;
 }
 
-Parser::~Parser()
+void Parser::print_tree(std::shared_ptr<LinkNode> tree_root)
 {
-
-}
-
-void Parser::print_tree(void)
-{
-    std::deque<std::shared_ptr<LinkNode>> deq {tree_root_};
+    std::deque<std::shared_ptr<LinkNode>> deq {tree_root};
 
     while (not deq.empty()) {
         const auto current_link = deq.front();
@@ -251,25 +249,46 @@ Link Parser::xml_node_to_link(const pugi::xml_node& xml_node)
     CHECK_F(static_cast<bool>(xml_node.attribute("name")), "Link has no name");
     link.name = xml_node.attribute("name").as_string();
 
-    if (xml_node.child("inertial")) {
-        link.inertial = Inertial(
-            xml_node.child("inertial").child("origin").attribute("xyz").as_string(),
-            xml_node.child("inertial").child("origin").attribute("rpy").as_string(),
-            xml_node.child("inertial").child("mass").attribute("value").as_float(),
-            xml_node.child("inertial").child("inertia").attribute("ixx").as_float(),
-            xml_node.child("inertial").child("inertia").attribute("iyy").as_float(),
-            xml_node.child("inertial").child("inertia").attribute("izz").as_float(),
-            xml_node.child("inertial").child("inertia").attribute("ixy").as_float(),
-            xml_node.child("inertial").child("inertia").attribute("ixz").as_float(),
-            xml_node.child("inertial").child("inertia").attribute("iyz").as_float()
-        );
-    }
-    if (xml_node.child("visual")) {
+    link.inertial = xml_node_to_inertial(xml_node.child("inertial"));
 
-    }
-    if (xml_node.child("collision")) {
+    const pugi::xml_node& vis_node = xml_node.child("visual");
+    if (vis_node) {
+        link.visual = Visual{};
 
+        // --- Name
+        std::string visual_name = vis_node.attribute("name").as_string();
+        if (not visual_name.empty()) link.visual->name = visual_name;
+
+        // --- Origin
+        const auto& ori_node = vis_node.child("origin");
+        link.visual->origin = xml_node_to_origin(ori_node);
+
+        // --- Geometry
+        const auto& geom_node = vis_node.child("geometry");
+        link.visual->geometry = xml_node_to_geometry(geom_node);
+
+        // --- Material
+        const auto& mat_node = vis_node.child("material");
+        link.visual->material = xml_node_to_material(mat_node);
     }
+
+    const pugi::xml_node& col_node = xml_node.child("collision");
+    if (col_node) {
+        link.collision = Collision{};
+
+        // --- Name
+        std::string collision_name = col_node.attribute("name").as_string();
+        if (not collision_name.empty()) link.collision->name = collision_name;
+
+        // --- Origin
+        const auto& ori_node = col_node.child("origin");
+        link.collision->origin = xml_node_to_origin(ori_node);
+
+        // --- Geometry
+        const auto& geom_node = col_node.child("geometry");
+        link.collision->geometry = xml_node_to_geometry(geom_node);
+    }
+
     return link;
 }
 
@@ -307,6 +326,86 @@ Joint Parser::xml_node_to_joint(const pugi::xml_node& xml_node)
         );
     }
     return joint;
+}
+
+std::optional<Origin> Parser::xml_node_to_origin(const pugi::xml_node& xml_node)
+{
+    if (xml_node) {
+        return Origin(
+            xml_node.attribute("xyz").as_string(),
+            xml_node.attribute("rpy").as_string()
+        );
+    } else {
+        return std::nullopt;
+    }
+}
+
+std::optional<Inertial> Parser::xml_node_to_inertial(const pugi::xml_node& xml_node)
+{
+    if (xml_node) {
+        return Inertial(
+            xml_node.child("inertial").child("origin").attribute("xyz").as_string(),
+            xml_node.child("inertial").child("origin").attribute("rpy").as_string(),
+            xml_node.child("inertial").child("mass").attribute("value").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("ixx").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("iyy").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("izz").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("ixy").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("ixz").as_float(),
+            xml_node.child("inertial").child("inertia").attribute("iyz").as_float()
+        );
+    } else {
+        return std::nullopt;
+    }
+}
+
+Geometry Parser::xml_node_to_geometry(const pugi::xml_node& geom_node)
+{
+    CHECK_F(static_cast<bool>(geom_node), "Missing geometry tag!");
+
+    Geometry geom;
+    if (geom_node.child("box")) {
+        geom.type = Box(geom_node.child("box").attribute("size").as_string());
+    } else if (geom_node.child("cylinder")) {
+        geom.type = Cylinder(
+            geom_node.child("cylinder").attribute("radius").as_string(),
+            geom_node.child("cylinder").attribute("length").as_string()
+        );
+    } else if (geom_node.child("sphere")) {
+        geom.type = Sphere(geom_node.child("sphere").attribute("radius").as_string());
+    } else if (geom_node.child("mesh")) {
+        LOG_F(INFO, "Mesh visuals are not implemented yet!"); // TODO
+        geom.type = Box();
+    }
+
+    return geom;
+}
+
+std::optional<Material> Parser::xml_node_to_material(const pugi::xml_node& mat_node)
+{
+    if (mat_node) {
+        Material mat;
+        if (mat_node.attribute("name")) {
+            mat.name = mat_node.attribute("name").as_string();
+        }
+
+        if (mat_node.child("color")) {
+            CHECK_F(static_cast<bool>(mat_node.child("color").attribute("rgba")),
+                    "The material color tag needs to have a rgba value");
+            mat.rgba = Vector4{};
+            store_vec4(mat_node.child("color").attribute("rgba").as_string(), mat.rgba.value());
+        }
+
+        if (mat_node.child("texture")) {
+            CHECK_F(static_cast<bool>(mat_node.child("texture").attribute("filename")),
+                    "The texture tag needs to have a filename attribute!");
+            mat.texture_file = mat_node.child("texture").attribute("filename").as_string();
+        }
+
+        return mat;
+    } else {
+        return std::nullopt;
+    }
 }
 
 }  // namespace urdf
