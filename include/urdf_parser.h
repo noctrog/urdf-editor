@@ -1,7 +1,7 @@
 #include <vector>
 #include <variant>
 #include <optional>
-#include <memory>
+#include <map>
 
 #include <pugixml.hpp>
 #include <raylib.h>
@@ -12,45 +12,58 @@ struct Origin {
     Origin(const char *xyz, const char *rpy);
     Origin(const Vector3& xyz, const Vector3& rpy);
 
-    Vector3 xyz_;
-    Vector3 rpy_;
+    Vector3 xyz;
+    Vector3 rpy;
 };
 
-struct Box {
+struct GeometryType {
+    virtual ::Mesh generateGeometry() = 0;
+};
+
+struct Box : GeometryType {
     Box();
     Box(const char *size);
     Box(const Vector3& size);
+    virtual ~Box() = default;
 
-    Vector3 size_;
+    Vector3 size;
+
+    virtual ::Mesh generateGeometry() override;
 };
 
-struct Cylinder {
+struct Cylinder : GeometryType {
     Cylinder();
     Cylinder(const char *radius, const char *length);
     Cylinder(float radius, float length);
+    virtual ~Cylinder() = default;
 
-    float radius_;
-    float length_;
+    float radius;
+    float length;
+
+    virtual ::Mesh generateGeometry() override;
 };
 
-struct Sphere {
+struct Sphere : GeometryType {
     Sphere();
     Sphere(const char *radius);
     Sphere(float radius);
+    virtual ~Sphere() = default;
 
-    float radius_;
+    float radius;
+
+    virtual ::Mesh generateGeometry() override;
 };
 
 struct Mesh {
     std::string filename;
+
+    void generateGeometry(::Mesh& mesh);
 };
 
 // TODO: implement mesh geometry
 
-using GeometryType = std::variant<Box, Cylinder, Sphere, Mesh>;
-
 struct Geometry {
-    GeometryType type;
+    std::shared_ptr<GeometryType> type;
 };
 
 struct Material {
@@ -144,14 +157,25 @@ struct Joint {
 struct LinkNode;
 struct JointNode;
 
+using LinkNodePtr = std::shared_ptr<LinkNode>;
+using JointNodePtr = std::shared_ptr<JointNode>;
+
 struct LinkNode
 {
+    LinkNode();
+    LinkNode(const Link& link, const JointNodePtr& parent_joint);
+
     Link link;
     std::shared_ptr<JointNode> parent;
     std::vector<std::shared_ptr<JointNode>> children;
 
+    ::Mesh visual_mesh;
+    ::Mesh collision_mesh;
+
     Model visual_model;
     Model collision_model;
+
+    Matrix T;
 };
 
 struct JointNode
@@ -166,9 +190,7 @@ public:
     Parser(const char *urdf_file);
     ~Parser();
 
-    std::shared_ptr<LinkNode> build_robot(void);
-
-    void print_tree(std::shared_ptr<LinkNode> tree_root);
+    LinkNodePtr build_robot(void);
 
 private:
     pugi::xml_node find_root();
@@ -182,6 +204,26 @@ private:
     std::optional<Material> xml_node_to_material(const pugi::xml_node& xml_node);
 
     pugi::xml_document doc_;
+};
+
+class Robot {
+public:
+    Robot(const LinkNodePtr& root);
+
+    void forward_kinematics(void);
+
+    void build_geometry(void);
+
+    void draw(void);
+
+    void print_tree(void);
+
+private:
+    static Matrix origin_to_matrix(std::optional<Origin>& origin);
+
+    LinkNodePtr root_;
+
+    std::map<std::string, float> q;
 };
 
 } // namespace urdf

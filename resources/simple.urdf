@@ -21,7 +21,8 @@
     <link name="humerus">
         <visual>
             <geometry>
-                <cylinder length="2.5" radius="0.25"/>
+                <!-- <cylinder length="2.5" radius="0.25"/> -->
+                <box size="0.25 0.25 2.5"/>
             </geometry>
             <origin rpy="0 0 0" xyz="0 0 1.25"/>
             <material name="purple"/>

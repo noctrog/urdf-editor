@@ -1,10 +1,15 @@
-#include <sstream>
+#include <raylib.h>
+#include <raymath.h>
+#include <external/par_shapes.h>
+
 #include <set>
 #include <map>
 #include <deque>
 
 #include <urdf_parser.h>
 #include <loguru.hpp>
+
+#include <raymath.h>
 
 namespace urdf {
 
@@ -28,62 +33,80 @@ static void store_vec4(const char *s, Vector4& vec) {
 
 Origin::Origin(const char *xyz_s, const char *rpy_s)
 {
-    xyz_.x = xyz_.y = xyz_.z = 0.0f;
-    rpy_.x = rpy_.y = rpy_.z = 0.0f;
+    xyz.x = xyz.y = xyz.z = 0.0f;
+    rpy.x = rpy.y = rpy.z = 0.0f;
 
-    if (xyz_s) store_vec3(xyz_s, xyz_);
-    if (rpy_s) store_vec3(rpy_s, rpy_);
+    if (xyz_s) store_vec3(xyz_s, xyz);
+    if (rpy_s) store_vec3(rpy_s, rpy);
 
 }
 
 Origin::Origin(const Vector3& xyz, const Vector3& rpy)
-    : xyz_(xyz), rpy_(rpy)
+    : xyz(xyz), rpy(rpy)
 {
 
 }
 
 Box::Box()
 {
-    size_.x = size_.y = size_.z = 1.0f;
+    size.x = size.y = size.z = 1.0f;
 }
 
-Box::Box(const char *size)
+Box::Box(const char *_size)
 {
-    store_vec3(size, size_);
+    store_vec3(_size, size);
 }
 
 Box::Box(const Vector3& size)
-    : size_(size)
+    : size(size)
 {
 
+}
+
+::Mesh Box::generateGeometry()
+{
+    return GenMeshCube(size.x, size.y, size.z);
 }
 
 Cylinder::Cylinder()
 {
-    radius_ = length_ = 1.0f;
+    radius = length = 1.0f;
 }
 
-Cylinder::Cylinder(const char *radius, const char *length)
+Cylinder::Cylinder(const char *_radius, const char *_length)
 {
-    radius_ = length_ = 0.0f;
-    if (radius) store_float(radius, radius_);
-    if (length) store_float(length, length_);
+    radius = length = 0.0f;
+    if (_radius) store_float(_radius, radius);
+    if (_length) store_float(_length, length);
+}
+
+::Mesh Cylinder::generateGeometry()
+{
+    ::Mesh mesh = GenMeshCylinder(radius, length, 32);
+
+
+    return mesh;
 }
 
 Sphere::Sphere()
 {
-    radius_ = 1.0f;
+    radius = 1.0f;
 }
 
-Sphere::Sphere(const char *radius)
+Sphere::Sphere(const char *_radius)
 {
-    store_float(radius, radius_);
+    store_float(_radius, radius);
 }
 
-Sphere::Sphere(float radius)
-    : radius_(radius)
+Sphere::Sphere(float _radius)
+    : radius(_radius)
 {
 
+}
+
+::Mesh Sphere::generateGeometry()
+{
+    return GenMeshSphere(radius, 32, 32);
 }
 
 Inertia::Inertia(float ixx, float iyy, float izz, float ixy, float ixz, float iyz)
@@ -140,6 +163,18 @@ Joint::Joint(const char *_name, const char *_parent, const char *_child, const c
     }
 }
 
+LinkNode::LinkNode()
+    : T(MatrixIdentity())
+{
+
+}
+
+LinkNode::LinkNode(const Link& link, const JointNodePtr& parent_joint)
+    : link(link), parent(parent_joint), T(MatrixIdentity())
+{
+
+}
+
 Parser::Parser(const char *urdf_file)
 {
     pugi::xml_parse_result result = doc_.load_file(urdf_file);
@@ -154,7 +189,7 @@ Parser::~Parser()
 
 }
 
-std::shared_ptr<LinkNode> Parser::build_robot(void)
+LinkNodePtr Parser::build_robot(void)
 {
     pugi::xml_node root_link = find_root();
     CHECK_F(not root_link.empty(), "No root link found");
@@ -182,9 +217,9 @@ std::shared_ptr<LinkNode> Parser::build_robot(void)
     }
 
     // tree_root_ = std::make_shared<LinkNode>(tree_root);
-    std::deque<std::shared_ptr<LinkNode>> deq{tree_root};
+    std::deque<LinkNodePtr> deq{tree_root};
     while (not deq.empty()) {
-        std::shared_ptr<LinkNode> current_root = deq.front();
+        LinkNodePtr current_root = deq.front();
         deq.pop_front();
 
         const auto it = joint_p_hash.find(current_root->link.name);
@@ -206,22 +241,6 @@ std::shared_ptr<LinkNode> Parser::build_robot(void)
     LOG_F(INFO, "URDF Tree built successfully!");
 
     return tree_root;
-}
-
-void Parser::print_tree(std::shared_ptr<LinkNode> tree_root)
-{
-    std::deque<std::shared_ptr<LinkNode>> deq {tree_root};
-
-    while (not deq.empty()) {
-        const auto current_link = deq.front();
-        deq.pop_front();
-
-        LOG_F(INFO, "%s", current_link->link.name.c_str());
-
-        for (const auto& joint : current_link->children) {
-            deq.push_back(joint->child);
-        }
-    }
 }
 
 pugi::xml_node Parser::find_root()
@@ -365,17 +384,17 @@ Geometry Parser::xml_node_to_geometry(const pugi::xml_node& geom_node)
 
     Geometry geom;
     if (geom_node.child("box")) {
-        geom.type = Box(geom_node.child("box").attribute("size").as_string());
+        geom.type = std::make_shared<Box>(geom_node.child("box").attribute("size").as_string());
     } else if (geom_node.child("cylinder")) {
-        geom.type = Cylinder(
+        geom.type = std::make_shared<Cylinder>(
             geom_node.child("cylinder").attribute("radius").as_string(),
             geom_node.child("cylinder").attribute("length").as_string()
         );
     } else if (geom_node.child("sphere")) {
-        geom.type = Sphere(geom_node.child("sphere").attribute("radius").as_string());
+        geom.type = std::make_shared<Sphere>(geom_node.child("sphere").attribute("radius").as_string());
     } else if (geom_node.child("mesh")) {
         LOG_F(INFO, "Mesh visuals are not implemented yet!"); // TODO
-        geom.type = Box();
+        geom.type = std::make_shared<Box>();
     }
 
     return geom;
@@ -407,6 +426,113 @@ std::optional<Material> Parser::xml_node_to_material(const pugi::xml_node& mat_n
         return std::nullopt;
     }
 }
+
+Robot::Robot(const LinkNodePtr& root)
+    : root_(root)
+{
+
+}
+
+void Robot::forward_kinematics(void)
+{
+    std::function<void (LinkNodePtr&)> recursion = [&](LinkNodePtr& node){
+        for (auto& joint_node : node->children) {
+            const Matrix& w_T_p = node->T;
+
+            // Forward kinematics
+            const Matrix p_T_c = origin_to_matrix(joint_node->joint.origin);
+            const Matrix w_T_c = MatrixMultiply(w_T_p, p_T_c);
+            joint_node->child->T = w_T_c;
+
+            // Update visual transform
+            joint_node->child->visual_model.transform =
+                origin_to_matrix(joint_node->child->link.visual->origin);
+
+            // Update collision transform
+            joint_node->child->collision_model.transform =
+                origin_to_matrix(joint_node->child->link.visual->origin);
+
+            recursion(joint_node->child);
+        }
+    };
+
+    recursion(root_);
+}
+
+Matrix Robot::origin_to_matrix(std::optional<Origin>& origin)
+{
+    Matrix T = MatrixIdentity();
+
+    if (origin) {
+        T = MatrixMultiply(
+            MatrixRotateXYZ(origin->rpy),
+            MatrixTranslate(origin->xyz.x, origin->xyz.y, origin->xyz.z)
+        );
+    }
+
+    return T;
+}
+
+void Robot::build_geometry()
+{
+    std::deque<LinkNodePtr> deq {root_};
+
+    while (not deq.empty()) {
+        const auto link = deq.front();
+        deq.pop_front();
+
+        // Visual model
+        if (link->link.visual) {
+            link->visual_mesh = link->link.visual->geometry.type->generateGeometry();
+            link->visual_model = LoadModelFromMesh(link->visual_mesh);
+        }
+
+        // Collision model
+        if (link->link.collision) {
+            link->collision_mesh = link->link.collision->geometry.type->generateGeometry();
+            link->collision_model = LoadModelFromMesh(link->collision_mesh);
+        }
+
+        for (const auto& joint : link->children) {
+            deq.push_back(joint->child);
+        }
+    }
+}
+
+void Robot::draw()
+{
+    std::deque<LinkNodePtr> deq {root_};
+
+    while (not deq.empty()) {
+        const auto link = deq.front();
+        deq.pop_front();
+
+        if (link->link.visual) {
+            DrawModel(link->visual_model, {0.0f, 0.0f, 0.0f}, 1.0, LIGHTGRAY);
+        }
+
+        for (const auto& joint : link->children) {
+            deq.push_back(joint->child);
+        }
+    }
+}
+
+void Robot::print_tree()
+{
+    std::deque<LinkNodePtr> deq {root_};
+
+    while (not deq.empty()) {
+        const auto current_link = deq.front();
+        deq.pop_front();
+
+        LOG_F(INFO, "%s", current_link->link.name.c_str());
+
+        for (const auto& joint : current_link->children) {
+            deq.push_back(joint->child);
+        }
+    }
+}
+
 
 }  // namespace urdf
 

@@ -1,21 +1,40 @@
-/*******************************************************************************************
-*
-*   raylib [models] example - Detect basic 3d collisions (box vs sphere vs box)
-*
-*   Example originally created with raylib 1.3, last time updated with raylib 3.5
-*
-*   Example licensed under an unmodified zlib/libpng license, which is an OSI-certified,
-*   BSD-like license that allows static linking with closed source software
-*
-*   Copyright (c) 2015-2023 Ramon Santamaria (@raysan5)
-*
-********************************************************************************************/
-
 #include <raylib.h>
+#include <rlgl.h>
 #include <pugixml.hpp>
 #include <loguru.hpp>
 
 #include <urdf_parser.h>
+
+void DrawGridZUp(int slices, float spacing)
+{
+    int halfSlices = slices/2;
+
+    rlBegin(RL_LINES);
+        for (int i = -halfSlices; i <= halfSlices; i++)
+        {
+            if (i == 0)
+            {
+                rlColor3f(0.5f, 0.5f, 0.5f);
+                rlColor3f(0.5f, 0.5f, 0.5f);
+                rlColor3f(0.5f, 0.5f, 0.5f);
+                rlColor3f(0.5f, 0.5f, 0.5f);
+            }
+            else
+            {
+                rlColor3f(0.75f, 0.75f, 0.75f);
+                rlColor3f(0.75f, 0.75f, 0.75f);
+                rlColor3f(0.75f, 0.75f, 0.75f);
+                rlColor3f(0.75f, 0.75f, 0.75f);
+            }
+
+            rlVertex3f((float)i*spacing, (float)-halfSlices*spacing, 0.0f);
+            rlVertex3f((float)i*spacing, (float)halfSlices*spacing, 0.0f);
+
+            rlVertex3f((float)-halfSlices*spacing, (float)i*spacing, 0.0f);
+            rlVertex3f((float)halfSlices*spacing, (float)i*spacing, 0.0f);
+        }
+    rlEnd();
+}
 
 //------------------------------------------------------------------------------------
 // Program main entry point
@@ -26,17 +45,20 @@ int main(int argc, char* argv[])
 
     // Initialization
     //--------------------------------------------------------------------------------------
-    const char *urdf_file = "./resources/simple.urdf";
-    urdf::Parser urdf_parser(urdf_file);
-    std::shared_ptr<urdf::LinkNode> robot = urdf_parser.build_robot();
-
     const int screenWidth = 800;
     const int screenHeight = 450;
-
+    SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "URDF Editor");
 
+    const char *urdf_file = "./resources/simple.urdf";
+    urdf::Parser urdf_parser(urdf_file);
+    urdf::Robot robot(urdf_parser.build_robot());
+    robot.print_tree();
+    robot.build_geometry();
+    robot.forward_kinematics();
+
     // Define the camera to look into our 3d world
-    Camera camera = { { 0.0f, 10.0f, 10.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 1.0f, 0.0f }, 45.0f, 0 };
+    Camera camera = { { 0.0f, 10.0f, 10.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 45.0f, 0 };
     bool bOrbiting = false;
 
     SetTargetFPS(60);               // Set our game to run at 60 frames-per-second
@@ -74,7 +96,9 @@ int main(int argc, char* argv[])
 
             BeginMode3D(camera);
 
-                DrawGrid(10, 1.0f);        // Draw a grid
+                DrawGridZUp(10, 1.0f);
+
+                robot.draw();
 
             EndMode3D();
 
