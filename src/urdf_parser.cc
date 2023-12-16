@@ -291,21 +291,22 @@ Link Parser::xml_node_to_link(const pugi::xml_node& xml_node)
         link.visual->material = xml_node_to_material(mat_node);
     }
 
-    const pugi::xml_node& col_node = xml_node.child("collision");
-    if (col_node) {
-        link.collision = Collision{};
+    for (const auto& col_node : xml_node.children("collision")) {
+        Collision col { };
 
         // --- Name
         std::string collision_name = col_node.attribute("name").as_string();
-        if (not collision_name.empty()) link.collision->name = collision_name;
+        if (not collision_name.empty()) col.name = collision_name;
 
         // --- Origin
         const auto& ori_node = col_node.child("origin");
-        link.collision->origin = xml_node_to_origin(ori_node);
+        col.origin = xml_node_to_origin(ori_node);
 
         // --- Geometry
         const auto& geom_node = col_node.child("geometry");
-        link.collision->geometry = xml_node_to_geometry(geom_node);
+        col.geometry = xml_node_to_geometry(geom_node);
+
+        link.collision.push_back(col);
     }
 
     return link;
@@ -449,8 +450,10 @@ void Robot::forward_kinematics(void)
                 origin_to_matrix(joint_node->child->link.visual->origin);
 
             // Update collision transform
-            joint_node->child->collision_model.transform =
-                origin_to_matrix(joint_node->child->link.visual->origin);
+            for (int i = 0; i < joint_node->child->collision_model.size(); ++i) {
+                joint_node->child->collision_model[i].transform =
+                    origin_to_matrix(joint_node->child->link.collision[i].origin);
+            }
 
             recursion(joint_node->child);
         }
@@ -488,9 +491,9 @@ void Robot::build_geometry()
         }
 
         // Collision model
-        if (link->link.collision) {
-            link->collision_mesh = link->link.collision->geometry.type->generateGeometry();
-            link->collision_model = LoadModelFromMesh(link->collision_mesh);
+        for (const Collision& col : link->link.collision) {
+            link->collision_mesh.push_back(col.geometry.type->generateGeometry());
+            link->collision_model.push_back(LoadModelFromMesh(link->collision_mesh.back()));
         }
 
         for (const auto& joint : link->children) {

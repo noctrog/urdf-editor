@@ -132,7 +132,7 @@ struct Link {
     std::string name;
     std::optional<Inertial> inertial;
     std::optional<Visual> visual;
-    std::optional<Collision> collision;
+    std::vector<Collision> collision;
 };
 
 struct Joint {
@@ -170,10 +170,10 @@ struct LinkNode
     std::vector<std::shared_ptr<JointNode>> children;
 
     ::Mesh visual_mesh;
-    ::Mesh collision_mesh;
+    std::vector<::Mesh> collision_mesh;
 
     Model visual_model;
-    Model collision_model;
+    std::vector<Model> collision_model;
 
     Matrix T;
 };
