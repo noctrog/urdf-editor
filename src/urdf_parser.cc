@@ -2,7 +2,6 @@
 #include <raymath.h>
 #include <external/par_shapes.h>
 
-#include <array>
 #include <set>
 #include <map>
 #include <deque>
@@ -13,6 +12,73 @@
 #include <raymath.h>
 
 namespace urdf {
+
+::Mesh GenMeshCenteredCylinder(float radius, float height, int slices)
+{
+    ::Mesh mesh = { 0 };
+
+    if (slices >= 3)
+    {
+        // Create a cylinder along Y-axis
+        par_shapes_mesh* cylinder = par_shapes_create_cylinder(slices, 8);
+        par_shapes_scale(cylinder, radius, radius, height);
+
+        // Translate the cylinder to center it at the origin
+        par_shapes_translate(cylinder, 0, 0, -height / 2.0f);
+
+        // Create top cap
+        par_shapes_mesh* capTop = par_shapes_create_disk(radius,
+                                                         slices,
+                                                         (float[]){ 0, 0, height/2 },
+                                                         (float[]){ 0, 0, 1 });
+        capTop->tcoords = PAR_MALLOC(float, 2 * capTop->npoints);
+        for (int i = 0; i < 2 * capTop->npoints; i++) capTop->tcoords[i] = 0.0f;
+
+        // Create bottom cap
+        par_shapes_mesh* capBottom = par_shapes_create_disk(radius,
+                                                            slices,
+                                                            (float[]){ 0, 0, 0 },
+                                                            (float[]){ 0, 0, -1 });
+        par_shapes_rotate(capBottom, -PI, (float[]){1, 0, 0});
+        par_shapes_translate(capBottom, 0, 0, -height / 2.0f);
+        capBottom->tcoords = PAR_MALLOC(float, 2 * capBottom->npoints);
+        for (int i = 0; i < 2 * capBottom->npoints; i++) capBottom->tcoords[i] = 0.95f;
+
+        // Merge cylinder and caps
+        par_shapes_merge_and_free(cylinder, capTop);
+        par_shapes_merge_and_free(cylinder, capBottom);
+
+
+        mesh.vertices = (float *)RL_MALLOC(cylinder->ntriangles*3*3*sizeof(float));
+        mesh.texcoords = (float *)RL_MALLOC(cylinder->ntriangles*3*2*sizeof(float));
+        mesh.normals = (float *)RL_MALLOC(cylinder->ntriangles*3*3*sizeof(float));
+
+        mesh.vertexCount = cylinder->ntriangles*3;
+        mesh.triangleCount = cylinder->ntriangles;
+
+        for (int k = 0; k < mesh.vertexCount; k++)
+        {
+            mesh.vertices[k*3] = cylinder->points[cylinder->triangles[k]*3];
+            mesh.vertices[k*3 + 1] = cylinder->points[cylinder->triangles[k]*3 + 1];
+            mesh.vertices[k*3 + 2] = cylinder->points[cylinder->triangles[k]*3 + 2];
+
+            mesh.normals[k*3] = cylinder->normals[cylinder->triangles[k]*3];
+            mesh.normals[k*3 + 1] = cylinder->normals[cylinder->triangles[k]*3 + 1];
+            mesh.normals[k*3 + 2] = cylinder->normals[cylinder->triangles[k]*3 + 2];
+
+            mesh.texcoords[k*2] = cylinder->tcoords[cylinder->triangles[k]*2];
+            mesh.texcoords[k*2 + 1] = cylinder->tcoords[cylinder->triangles[k]*2 + 1];
+        }
+
+        par_shapes_free_mesh(cylinder);
+
+        // Upload vertex data to GPU (static mesh)
+        UploadMesh(&mesh, false);
+    }
+    else LOG_F(WARNING, "MESH: Failed to generate mesh: cylinder");
+
+    return mesh;
+}
 
 static void store_float(const char *s, float& f) {
     std::stringstream iss(s);
@@ -83,7 +149,7 @@ Cylinder::Cylinder(const char *_radius, const char *_length)
 
 ::Mesh Cylinder::generateGeometry()
 {
-    ::Mesh mesh = GenMeshCylinder(radius, length, 32);
+    ::Mesh mesh = GenMeshCenteredCylinder(radius, length, 32);
 
 
     return mesh;
@@ -229,7 +295,6 @@ Robot Parser::build_robot(void)
         link_hash.insert({l.name, l});
     }
 
-    // tree_root_ = std::make_shared<LinkNode>(tree_root);
     std::deque<LinkNodePtr> deq{tree_root};
     while (not deq.empty()) {
         LinkNodePtr current_root = deq.front();
