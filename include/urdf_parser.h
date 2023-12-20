@@ -196,11 +196,15 @@ public:
 
     void build_geometry(void);
 
-    void print_tree(void);
+    void print_tree(void) const;
 
     void set_shader(const Shader& shader);
 
     void draw() const;
+
+    LinkNodePtr get_root(void) const;
+
+    const std::map<std::string, Material>& get_materials(void) const;
 
 private:
     static Matrix origin_to_matrix(std::optional<Origin>& origin);
@@ -221,9 +225,12 @@ public:
 
     Robot build_robot(void);
 
+    void export_robot(const Robot& robot, std::string out_filename);
+
 private:
     pugi::xml_node find_root();
 
+    // XML to data structures
     Link xml_node_to_link(const pugi::xml_node& xml_node);
     Joint xml_node_to_joint(const pugi::xml_node& xml_node);
 
@@ -231,6 +238,15 @@ private:
     std::optional<Origin> xml_node_to_origin(const pugi::xml_node& xml_node);
     Geometry xml_node_to_geometry(const pugi::xml_node& xml_node);
     std::optional<Material> xml_node_to_material(const pugi::xml_node& xml_node);
+
+    // Data structures to XML
+    void link_to_xml_node(pugi::xml_node& xml_node, const Link& link);
+    void joint_to_xml_node(pugi::xml_node& xml_node, const Joint& joint);
+
+    void inertial_to_xml_node(pugi::xml_node& xml_node,  const Inertial& inertial);
+    void origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin);
+    void geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geometry);
+    void material_to_xml_node(pugi::xml_node& xml_node, const Material& material);
 
     pugi::xml_document doc_;
 };

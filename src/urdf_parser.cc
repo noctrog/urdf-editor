@@ -510,6 +510,228 @@ std::optional<Material> Parser::xml_node_to_material(const pugi::xml_node& mat_n
     }
 }
 
+void Parser::export_robot(const Robot& robot, std::string out_filename)
+{
+    pugi::xml_document out_doc;
+    const LinkNodePtr root_node = robot.get_root();
+
+    pugi::xml_node robot_root = out_doc.append_child("robot");
+
+    // save links
+    std::deque<LinkNodePtr> deq {root_node};
+    while (not deq.empty()) {
+        const auto& current_link = deq.front();
+        deq.pop_front();
+
+        pugi::xml_node link_node = robot_root.append_child("link");
+        link_to_xml_node(link_node, current_link->link);
+
+        for (const auto& joint : current_link->children) {
+            deq.push_back(joint->child);
+        }
+    }
+
+    // save joints
+    deq = std::deque<LinkNodePtr> {root_node};
+    while (not deq.empty()) {
+        const auto& current_link = deq.front();
+        deq.pop_front();
+
+        for (const auto& joint : current_link->children) {
+            pugi::xml_node joint_node = robot_root.append_child("joint");
+            joint_to_xml_node(joint_node, joint->joint);
+
+            deq.push_back(joint->child);
+        }
+    }
+
+    // save materials
+    for (const auto& mat : robot.get_materials()) {
+        pugi::xml_node mat_node = robot_root.append_child("material");
+        material_to_xml_node(mat_node, mat.second);
+    }
+
+    if (!out_doc.save_file(out_filename.c_str())) {
+        LOG_F(ERROR, "File %s could not be opened or written!", out_filename.c_str());
+    }
+}
+
+void Parser::link_to_xml_node(pugi::xml_node& xml_node, const Link& link)
+{
+    xml_node.set_name("link");
+    xml_node.append_attribute("name") = link.name.c_str();
+
+    if (link.inertial) {
+        pugi::xml_node inertial_node = xml_node.append_child("inertial");
+        inertial_to_xml_node(inertial_node, *link.inertial);
+    }
+
+    if (link.visual) {
+        pugi::xml_node visual_node = xml_node.append_child("visual");
+        if (link.visual->name) {
+            visual_node.append_attribute("name") = link.visual->name->c_str();
+        }
+        if (link.visual->origin) {
+            pugi::xml_node origin_node = visual_node.append_child("origin");
+            origin_to_xml_node(origin_node, *link.visual->origin);
+        }
+        pugi::xml_node geometry_node = visual_node.append_child("geometry");
+        geometry_to_xml_node(geometry_node, link.visual->geometry);
+        if (link.visual->material_name) {
+            visual_node.append_child("material").append_attribute("name")
+                = link.visual->material_name->c_str();
+        }
+    }
+
+    for (const Collision& col : link.collision) {
+        pugi::xml_node collision_node = xml_node.append_child("collision");
+
+        if (col.name) {
+            collision_node.append_attribute("name") = col.name->c_str();
+        }
+
+        if (col.origin) {
+            pugi::xml_node origin_node = collision_node.append_child("origin");
+            origin_to_xml_node(origin_node, *col.origin);
+        }
+
+        pugi::xml_node geometry_node = collision_node.append_child("geometry");
+        geometry_to_xml_node(geometry_node, col.geometry);
+    }
+
+    if (not xml_node) LOG_F(ERROR, "Link node is empty!");
+}
+
+void Parser::joint_to_xml_node(pugi::xml_node& joint_node, const Joint& joint)
+{
+    joint_node.set_name("joint");
+    switch (joint.type) {
+        case Joint::REVOLUTE:
+            joint_node.append_attribute("type") = "revolute";
+            break;
+        case Joint::CONTINUOUS:
+            joint_node.append_attribute("type") = "continuous";
+            break;
+        case Joint::PRISMATIC:
+            joint_node.append_attribute("type") = "prismatic";
+            break;
+        case Joint::FIXED:
+            joint_node.append_attribute("type") = "fixed";
+            break;
+        case Joint::FLOATING:
+            joint_node.append_attribute("type") = "floating";
+            break;
+        case Joint::PLANAR:
+            joint_node.append_attribute("type") = "planar";
+            break;
+        default:
+            LOG_F(ERROR, "Unknown joint type.");
+    }
+
+    pugi::xml_node parent_node = joint_node.append_child("parent");
+    parent_node.append_attribute("link") = joint.parent.c_str();
+    pugi::xml_node child_node = joint_node.append_child("child");
+    child_node.append_attribute("link") = joint.child.c_str();
+
+    if (joint.origin) {
+        pugi::xml_node origin_node = joint_node.append_child("origin");
+        origin_to_xml_node(origin_node, *joint.origin);
+    }
+
+    if (joint.axis) {
+        pugi::xml_node axis_node = joint_node.append_child("axis");
+        axis_node.append_attribute("xyz") = (std::to_string(joint.axis->xyz.x) + " " +
+                                             std::to_string(joint.axis->xyz.y) + " " +
+                                             std::to_string(joint.axis->xyz.z)).c_str();
+    }
+
+    if (joint.dynamics) {
+        pugi::xml_node dynamics_node = joint_node.append_child("dynamics");
+        dynamics_node.append_attribute("damping") = joint.dynamics->damping;
+        dynamics_node.append_attribute("friction") = joint.dynamics->friction;
+    }
+
+    if (joint.limit) {
+        pugi::xml_node limit_node = joint_node.append_child("limit");
+        limit_node.append_attribute("lower") = joint.limit->lower;
+        limit_node.append_attribute("upper") = joint.limit->upper;
+        limit_node.append_attribute("effort") = joint.limit->effort;
+        limit_node.append_attribute("velocity") = joint.limit->velocity;
+    }
+}
+
+void Parser::inertial_to_xml_node(pugi::xml_node& xml_node, const Inertial& inertial)
+{
+    xml_node.set_name("inertial");
+
+    pugi::xml_node mass_node = xml_node.append_child("mass");
+    mass_node.append_attribute("value") = inertial.mass_;
+
+    pugi::xml_node inertia_node = xml_node.append_child("inertia");
+    inertia_node.append_attribute("ixx") = inertial.inertia_.ixx_;
+    inertia_node.append_attribute("iyy") = inertial.inertia_.iyy_;
+    inertia_node.append_attribute("izz") = inertial.inertia_.izz_;
+    inertia_node.append_attribute("ixy") = inertial.inertia_.ixy_;
+    inertia_node.append_attribute("ixz") = inertial.inertia_.ixz_;
+    inertia_node.append_attribute("iyz") = inertial.inertia_.iyz_;
+
+    pugi::xml_node origin_node = xml_node.append_child("origin");
+    origin_to_xml_node(origin_node, inertial.origin_);
+}
+
+void Parser::origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin)
+{
+    xml_node.set_name("origin");
+
+    xml_node.append_attribute("xyz") = (std::to_string(origin.xyz.x) + " " +
+        std::to_string(origin.xyz.y) + " " +
+        std::to_string(origin.xyz.z)).c_str();
+    xml_node.append_attribute("rpy") = (std::to_string(origin.rpy.x) + " " +
+        std::to_string(origin.rpy.y) + " " +
+        std::to_string(origin.rpy.z)).c_str();
+}
+
+void Parser::geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geometry)
+{
+    xml_node.set_name("geometry");
+
+    if (std::dynamic_pointer_cast<Box>(geometry.type)) {
+        const Box& box = *std::dynamic_pointer_cast<Box>(geometry.type);
+        pugi::xml_node box_node = xml_node.append_child("box");
+        box_node.append_attribute("size") = (std::to_string(box.size.x) + " " +
+                                             std::to_string(box.size.y) + " " +
+                                             std::to_string(box.size.z)).c_str();
+    } else if (std::dynamic_pointer_cast<Cylinder>(geometry.type)) {
+        const Cylinder& cylinder = *std::dynamic_pointer_cast<Cylinder>(geometry.type);
+        pugi::xml_node cylinder_node = xml_node.append_child("cylinder");
+        cylinder_node.append_attribute("radius") = std::to_string(cylinder.radius).c_str();
+        cylinder_node.append_attribute("length") = std::to_string(cylinder.length).c_str();
+    } else if (std::dynamic_pointer_cast<Sphere>(geometry.type)) {
+        const Sphere& sphere = *std::dynamic_pointer_cast<Sphere>(geometry.type);
+        pugi::xml_node sphere_node = xml_node.append_child("sphere");
+        sphere_node.append_attribute("radius") = std::to_string(sphere.radius).c_str();
+    } else {
+        LOG_F(WARNING, "Geometry type not implemented yet");
+    }
+}
+
+void Parser::material_to_xml_node(pugi::xml_node& xml_node, const Material& material)
+{
+    xml_node.set_name("material");
+    xml_node.append_attribute("name") = material.name.c_str();
+    if (material.rgba) {
+        pugi::xml_node color_node = xml_node.append_child("color");
+        color_node.append_attribute("rgba") = (std::to_string(material.rgba->x) + " " +
+                                               std::to_string(material.rgba->y) + " " +
+                                               std::to_string(material.rgba->z) + " " +
+                                               std::to_string(material.rgba->w)).c_str();
+    }
+    if (material.texture_file) {
+        pugi::xml_node texture_node = xml_node.append_child("texture");
+        texture_node.append_attribute("filename") = material.texture_file->c_str();
+    }
+}
+
 Robot::Robot(const LinkNodePtr& root,
       const std::map<std::string, Material>& materials)
     : root_(root), materials_(materials)
@@ -672,7 +894,7 @@ void Robot::set_shader(const Shader& sh)
     }
 }
 
-void Robot::print_tree()
+void Robot::print_tree() const
 {
     std::deque<LinkNodePtr> deq {root_};
 
@@ -686,6 +908,16 @@ void Robot::print_tree()
             deq.push_back(joint->child);
         }
     }
+}
+
+LinkNodePtr Robot::get_root(void) const
+{
+    return root_;
+}
+
+const std::map<std::string, Material>& Robot::get_materials(void) const
+{
+    return materials_;
 }
 
 
