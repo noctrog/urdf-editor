@@ -45,6 +45,11 @@
             <origin rpy="1.570796 0 0" xyz="0 0 2.5"/>
             <material name="pink"/>
         </visual>
+        <collision>
+          <geometry>
+            <box size="2 2 2"/>
+          </geometry>
+        </collision>
     </link>
 
     <joint name="wrist" type="prismatic">

@@ -173,7 +173,7 @@ struct LinkNode
     std::vector<::Mesh> collision_mesh;
 
     Model visual_model;
-    std::vector<Model> collision_model;
+    std::vector<Model> collision_models;
 
     Matrix T;
 };
@@ -189,6 +189,7 @@ class Robot {
 public:
     Robot(const LinkNodePtr& root,
           const std::map<std::string, Material>& materials = {});
+    ~Robot();
 
     void forward_kinematics(void);
 
@@ -198,7 +199,7 @@ public:
 
     void set_shader(const Shader& shader);
 
-    void draw();
+    void draw() const;
 
 private:
     static Matrix origin_to_matrix(std::optional<Origin>& origin);
@@ -206,7 +207,6 @@ private:
     LinkNodePtr root_;
 
     Shader visual_shader_;
-    Shader collision_shader_;
 
     // std::map<std::string, std::vector<float>> q; // vector motivation: joints with multiple dof
 

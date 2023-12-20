@@ -452,6 +452,25 @@ Robot::Robot(const LinkNodePtr& root,
 
 }
 
+Robot::~Robot()
+{
+    std::deque<LinkNodePtr> deq {root_};
+
+    while (not deq.empty()) {
+        const auto& link = deq.front();
+        deq.pop_front();
+
+        UnloadModel(link->visual_model);
+        for (const Model& mod : link->collision_models) {
+            UnloadModel(mod);
+        }
+
+        for (const auto& joint : link->children) {
+            deq.push_back(joint->child);
+        }
+    }
+}
+
 void Robot::forward_kinematics(void)
 {
     std::function<void (LinkNodePtr&)> recursion = [&](LinkNodePtr& node){
@@ -468,8 +487,8 @@ void Robot::forward_kinematics(void)
                 origin_to_matrix(joint_node->child->link.visual->origin);
 
             // Update collision transform
-            for (int i = 0; i < joint_node->child->collision_model.size(); ++i) {
-                joint_node->child->collision_model[i].transform =
+            for (int i = 0; i < joint_node->child->collision_models.size(); ++i) {
+                joint_node->child->collision_models[i].transform =
                     origin_to_matrix(joint_node->child->link.collision[i].origin);
             }
 
@@ -532,8 +551,7 @@ void Robot::build_geometry()
         // Collision model
         for (const Collision& col : link->link.collision) {
             link->collision_mesh.push_back(col.geometry.type->generateGeometry());
-            link->collision_model.push_back(LoadModelFromMesh(link->collision_mesh.back()));
-            link->collision_model.back().materials[0].shader = collision_shader_;
+            link->collision_models.push_back(LoadModelFromMesh(link->collision_mesh.back()));
         }
 
         for (const auto& joint : link->children) {
@@ -542,7 +560,7 @@ void Robot::build_geometry()
     }
 }
 
-void Robot::draw()
+void Robot::draw() const
 {
     std::deque<LinkNodePtr> deq {root_};
 
@@ -551,11 +569,11 @@ void Robot::draw()
         deq.pop_front();
 
         if (link->link.visual) {
-            SetShaderValue(visual_shader_,
-                           visual_shader_.locs[SHADER_LOC_COLOR_DIFFUSE],
-                           std::array<float, 4>({0.0f, 0.0f, 1.0f, 1.0f}).data(),
-                           SHADER_UNIFORM_VEC4);
             DrawModel(link->visual_model, Vector3Zero(), 1.0, WHITE);
+        }
+
+        for (const Model& model : link->collision_models) {
+            DrawModelWires(model, Vector3Zero(), 1.0, LIGHTGRAY);
         }
 
         for (const auto& joint : link->children) {
