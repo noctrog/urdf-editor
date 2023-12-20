@@ -538,6 +538,11 @@ Robot::~Robot()
 
 void Robot::forward_kinematics(void)
 {
+    forward_kinematics(root_);
+}
+
+void Robot::forward_kinematics(LinkNodePtr& link)
+{
     std::function<void (LinkNodePtr&)> recursion = [&](LinkNodePtr& node){
         for (auto& joint_node : node->children) {
             const Matrix& w_T_p = node->T;
@@ -561,7 +566,7 @@ void Robot::forward_kinematics(void)
         }
     };
 
-    recursion(root_);
+    recursion(link);
 }
 
 Matrix Robot::origin_to_matrix(std::optional<Origin>& origin)

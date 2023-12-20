@@ -191,7 +191,8 @@ public:
           const std::map<std::string, Material>& materials = {});
     ~Robot();
 
-    void forward_kinematics(void);
+    void forward_kinematics();
+    void forward_kinematics(LinkNodePtr& link);
 
     void build_geometry(void);
 
