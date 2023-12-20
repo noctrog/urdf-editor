@@ -27,19 +27,18 @@ namespace urdf {
         par_shapes_translate(cylinder, 0, 0, -height / 2.0f);
 
         // Create top cap
-        par_shapes_mesh* capTop = par_shapes_create_disk(radius,
-                                                         slices,
-                                                         (float[]){ 0, 0, height/2 },
-                                                         (float[]){ 0, 0, 1 });
+        float center_top[] = { 0, 0, height / 2 };
+        float normal_top[] = { 0, 0, 1 };
+        par_shapes_mesh* capTop = par_shapes_create_disk(radius, slices, center_top, normal_top);
         capTop->tcoords = PAR_MALLOC(float, 2 * capTop->npoints);
         for (int i = 0; i < 2 * capTop->npoints; i++) capTop->tcoords[i] = 0.0f;
 
         // Create bottom cap
-        par_shapes_mesh* capBottom = par_shapes_create_disk(radius,
-                                                            slices,
-                                                            (float[]){ 0, 0, 0 },
-                                                            (float[]){ 0, 0, -1 });
-        par_shapes_rotate(capBottom, -PI, (float[]){1, 0, 0});
+        float center_bot[] = { 0, 0, 0 };
+        float normal_bot[] = { 0, 0, 1 };
+        par_shapes_mesh* capBottom = par_shapes_create_disk(radius, slices, center_bot, normal_bot);
+        float x_vec[] = {1, 0, 0};
+        par_shapes_rotate(capBottom, -PI, x_vec);
         par_shapes_translate(capBottom, 0, 0, -height / 2.0f);
         capBottom->tcoords = PAR_MALLOC(float, 2 * capBottom->npoints);
         for (int i = 0; i < 2 * capBottom->npoints; i++) capBottom->tcoords[i] = 0.95f;
