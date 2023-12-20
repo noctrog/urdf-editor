@@ -2,6 +2,7 @@
 #include <raymath.h>
 #include <external/par_shapes.h>
 
+#include <array>
 #include <set>
 #include <map>
 #include <deque>
@@ -189,17 +190,29 @@ Parser::~Parser()
 
 }
 
-LinkNodePtr Parser::build_robot(void)
+Robot Parser::build_robot(void)
 {
+    LOG_F(INFO, "Building robot...");
+
     pugi::xml_node root_link = find_root();
     CHECK_F(not root_link.empty(), "No root link found");
 
     auto tree_root = std::make_shared<LinkNode>();
     tree_root->link = xml_node_to_link(root_link);
 
+    // Create all materials
+    // TODO: support loading materials that are defined within the link
+    std::map<std::string, Material> materials;
+    for (pugi::xml_node& mat : doc_.child("robot").children("material")) {
+        if (const auto m = xml_node_to_material(mat)) {
+            materials.insert({m->name, *m});
+        }
+    }
+    // TODO: every link uses the same shader, the material properties change the shader color.
+
     // Parent link to all child joints
     std::map<std::string, std::vector<Joint>> joint_p_hash;
-    for (pugi::xml_node joint : doc_.child("robot").children("joint")) {
+    for (const pugi::xml_node& joint : doc_.child("robot").children("joint")) {
         Joint j = xml_node_to_joint(joint);
         if (joint_p_hash.find(j.parent) == joint_p_hash.end()) {
             joint_p_hash.insert({ j.parent, std::vector<Joint>({j}) });
@@ -210,7 +223,7 @@ LinkNodePtr Parser::build_robot(void)
 
     // Link name to link
     std::map<std::string, Link> link_hash;
-    for (pugi::xml_node link : doc_.child("robot").children("link")) {
+    for (const pugi::xml_node& link : doc_.child("robot").children("link")) {
         Link l = xml_node_to_link(link);
         CHECK_F(link_hash.find(l.name) == link_hash.end());
         link_hash.insert({l.name, l});
@@ -238,9 +251,11 @@ LinkNodePtr Parser::build_robot(void)
         }
     }
 
+    Robot robot(tree_root, materials);
+
     LOG_F(INFO, "URDF Tree built successfully!");
 
-    return tree_root;
+    return robot;
 }
 
 pugi::xml_node Parser::find_root()
@@ -287,8 +302,10 @@ Link Parser::xml_node_to_link(const pugi::xml_node& xml_node)
         link.visual->geometry = xml_node_to_geometry(geom_node);
 
         // --- Material
-        const auto& mat_node = vis_node.child("material");
-        link.visual->material = xml_node_to_material(mat_node);
+        if (const auto& mat_node = vis_node.child("material")) {
+            link.visual->material_name = mat_node.attribute("name").as_string();
+            CHECK_F(not link.visual->material_name->empty(), "Materials need to have a name!");
+        }
     }
 
     for (const auto& col_node : xml_node.children("collision")) {
@@ -405,13 +422,13 @@ std::optional<Material> Parser::xml_node_to_material(const pugi::xml_node& mat_n
 {
     if (mat_node) {
         Material mat;
-        if (mat_node.attribute("name")) {
-            mat.name = mat_node.attribute("name").as_string();
-        }
+
+        mat.name = mat_node.attribute("name").as_string();
+        CHECK_F(not mat.name.empty(), "Materials need to have a name!");
 
         if (mat_node.child("color")) {
             CHECK_F(static_cast<bool>(mat_node.child("color").attribute("rgba")),
-                    "The material color tag needs to have a rgba value");
+                    "The material color tag needs to have an rgba value");
             mat.rgba = Vector4{};
             store_vec4(mat_node.child("color").attribute("rgba").as_string(), mat.rgba.value());
         }
@@ -428,8 +445,9 @@ std::optional<Material> Parser::xml_node_to_material(const pugi::xml_node& mat_n
     }
 }
 
-Robot::Robot(const LinkNodePtr& root)
-    : root_(root)
+Robot::Robot(const LinkNodePtr& root,
+      const std::map<std::string, Material>& materials)
+    : root_(root), materials_(materials)
 {
 
 }
@@ -480,20 +498,42 @@ void Robot::build_geometry()
 {
     std::deque<LinkNodePtr> deq {root_};
 
+    auto set_material_diffuse_color = [](const LinkNodePtr& link, const Vector4& color){
+        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.r = static_cast<char>(color.x * 255.0f);
+        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.g = static_cast<char>(color.y * 255.0f);
+        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.b = static_cast<char>(color.z * 255.0f);
+        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.a = static_cast<char>(color.w * 255.0f);
+    };
+
     while (not deq.empty()) {
-        const auto link = deq.front();
+        const LinkNodePtr link = deq.front();
         deq.pop_front();
 
         // Visual model
         if (link->link.visual) {
             link->visual_mesh = link->link.visual->geometry.type->generateGeometry();
             link->visual_model = LoadModelFromMesh(link->visual_mesh);
+            link->visual_model.materials[0].shader = visual_shader_;
+
+            if (link->link.visual->material_name) {
+                const Material& mat = materials_[*link->link.visual->material_name];
+                if (mat.rgba) {
+                    set_material_diffuse_color(link, *mat.rgba);
+                } else {
+                    set_material_diffuse_color(link, Vector4{127, 127, 127, 255});
+                    LOG_F(INFO, "Link: %s. RGBA not found, using default color. Texture is not implemented yet.", link->link.name.c_str());
+                }
+            } else {
+                set_material_diffuse_color(link, Vector4{127, 127, 127, 255});
+                LOG_F(INFO, "Link: %s. No material name specified. Using default color", link->link.name.c_str());
+            }
         }
 
         // Collision model
         for (const Collision& col : link->link.collision) {
             link->collision_mesh.push_back(col.geometry.type->generateGeometry());
             link->collision_model.push_back(LoadModelFromMesh(link->collision_mesh.back()));
+            link->collision_model.back().materials[0].shader = collision_shader_;
         }
 
         for (const auto& joint : link->children) {
@@ -507,14 +547,38 @@ void Robot::draw()
     std::deque<LinkNodePtr> deq {root_};
 
     while (not deq.empty()) {
-        const auto link = deq.front();
+        const auto& link = deq.front();
         deq.pop_front();
 
         if (link->link.visual) {
-            DrawModel(link->visual_model, {0.0f, 0.0f, 0.0f}, 1.0, LIGHTGRAY);
+            SetShaderValue(visual_shader_,
+                           visual_shader_.locs[SHADER_LOC_COLOR_DIFFUSE],
+                           std::array<float, 4>({0.0f, 0.0f, 1.0f, 1.0f}).data(),
+                           SHADER_UNIFORM_VEC4);
+            DrawModel(link->visual_model, Vector3Zero(), 1.0, WHITE);
         }
 
         for (const auto& joint : link->children) {
+            deq.push_back(joint->child);
+        }
+    }
+}
+
+void Robot::set_shader(const Shader& sh)
+{
+    visual_shader_ = sh;
+
+    std::deque<LinkNodePtr> deq {root_};
+
+    while (not deq.empty()) {
+        const auto& current_link = deq.front();
+        deq.pop_front();
+
+        if (::Material *mat = current_link->visual_model.materials) {
+            mat[0].shader = visual_shader_;
+        }
+
+        for (const auto& joint : current_link->children) {
             deq.push_back(joint->child);
         }
     }
@@ -525,7 +589,7 @@ void Robot::print_tree()
     std::deque<LinkNodePtr> deq {root_};
 
     while (not deq.empty()) {
-        const auto current_link = deq.front();
+        const auto& current_link = deq.front();
         deq.pop_front();
 
         LOG_F(INFO, "%s", current_link->link.name.c_str());

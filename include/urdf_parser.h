@@ -67,7 +67,7 @@ struct Geometry {
 };
 
 struct Material {
-    std::optional<std::string> name;
+    std::string name;
     std::optional<Vector4> rgba;
     std::optional<std::string> texture_file;
 };
@@ -93,7 +93,7 @@ struct Visual {
     std::optional<std::string> name;
     std::optional<Origin> origin;
     Geometry geometry;
-    std::optional<Material> material;
+    std::optional<std::string> material_name;
 };
 
 struct Collision {
@@ -185,12 +185,40 @@ struct JointNode
     std::shared_ptr<LinkNode> child;
 };
 
+class Robot {
+public:
+    Robot(const LinkNodePtr& root,
+          const std::map<std::string, Material>& materials = {});
+
+    void forward_kinematics(void);
+
+    void build_geometry(void);
+
+    void print_tree(void);
+
+    void set_shader(const Shader& shader);
+
+    void draw();
+
+private:
+    static Matrix origin_to_matrix(std::optional<Origin>& origin);
+
+    LinkNodePtr root_;
+
+    Shader visual_shader_;
+    Shader collision_shader_;
+
+    // std::map<std::string, std::vector<float>> q; // vector motivation: joints with multiple dof
+
+    std::map<std::string, Material> materials_;
+};
+
 class Parser {
 public:
     Parser(const char *urdf_file);
     ~Parser();
 
-    LinkNodePtr build_robot(void);
+    Robot build_robot(void);
 
 private:
     pugi::xml_node find_root();
@@ -204,26 +232,6 @@ private:
     std::optional<Material> xml_node_to_material(const pugi::xml_node& xml_node);
 
     pugi::xml_document doc_;
-};
-
-class Robot {
-public:
-    Robot(const LinkNodePtr& root);
-
-    void forward_kinematics(void);
-
-    void build_geometry(void);
-
-    void draw(void);
-
-    void print_tree(void);
-
-private:
-    static Matrix origin_to_matrix(std::optional<Origin>& origin);
-
-    LinkNodePtr root_;
-
-    std::map<std::string, float> q;
 };
 
 } // namespace urdf
