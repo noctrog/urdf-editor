@@ -1,5 +1,6 @@
+#pragma once
+
 #include <vector>
-#include <variant>
 #include <optional>
 #include <map>
 
@@ -220,15 +221,15 @@ private:
 
 class Parser {
 public:
-    Parser(const char *urdf_file);
+    Parser();
     ~Parser();
 
-    Robot build_robot(void);
+    Robot build_robot(const char *urdf_file);
 
     void export_robot(const Robot& robot, std::string out_filename);
 
 private:
-    pugi::xml_node find_root();
+    pugi::xml_node find_root(const pugi::xml_document& doc);
 
     // XML to data structures
     Link xml_node_to_link(const pugi::xml_node& xml_node);
@@ -247,8 +248,6 @@ private:
     void origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin);
     void geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geometry);
     void material_to_xml_node(pugi::xml_node& xml_node, const Material& material);
-
-    pugi::xml_document doc_;
 };
 
 } // namespace urdf

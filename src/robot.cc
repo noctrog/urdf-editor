@@ -6,7 +6,7 @@
 #include <map>
 #include <deque>
 
-#include <urdf_parser.h>
+#include <robot.h>
 #include <loguru.hpp>
 
 #include <raymath.h>
@@ -241,13 +241,9 @@ LinkNode::LinkNode(const Link& link, const JointNodePtr& parent_joint)
 
 }
 
-Parser::Parser(const char *urdf_file)
+Parser::Parser()
 {
-    pugi::xml_parse_result result = doc_.load_file(urdf_file);
-    CHECK_F(result, "Failed to open %s", urdf_file);
 
-    bool is_root_robot = doc_.root().name() != std::string("robot");
-    CHECK_F(is_root_robot, "The urdf root name (%s) is not robot", doc_.root().name());
 }
 
 Parser::~Parser()
@@ -255,11 +251,17 @@ Parser::~Parser()
 
 }
 
-Robot Parser::build_robot(void)
+Robot Parser::build_robot(const char *urdf_file)
 {
+    pugi::xml_document doc;
+    pugi::xml_parse_result result = doc.load_file(urdf_file);
+    CHECK_F(result, "Failed to open %s", urdf_file);
+
+    bool is_root_robot = doc.root().name() != std::string("robot");
+    CHECK_F(is_root_robot, "The urdf root name (%s) is not robot", doc.root().name());
     LOG_F(INFO, "Building robot...");
 
-    pugi::xml_node root_link = find_root();
+    pugi::xml_node root_link = find_root(doc);
     CHECK_F(not root_link.empty(), "No root link found");
 
     auto tree_root = std::make_shared<LinkNode>();
@@ -268,7 +270,7 @@ Robot Parser::build_robot(void)
     // Create all materials
     // TODO: support loading materials that are defined within the link
     std::map<std::string, Material> materials;
-    for (pugi::xml_node& mat : doc_.child("robot").children("material")) {
+    for (pugi::xml_node& mat : doc.child("robot").children("material")) {
         if (const auto m = xml_node_to_material(mat)) {
             materials.insert({m->name, *m});
         }
@@ -277,7 +279,7 @@ Robot Parser::build_robot(void)
 
     // Parent link to all child joints
     std::map<std::string, std::vector<Joint>> joint_p_hash;
-    for (const pugi::xml_node& joint : doc_.child("robot").children("joint")) {
+    for (const pugi::xml_node& joint : doc.child("robot").children("joint")) {
         Joint j = xml_node_to_joint(joint);
         if (joint_p_hash.find(j.parent) == joint_p_hash.end()) {
             joint_p_hash.insert({ j.parent, std::vector<Joint>({j}) });
@@ -288,7 +290,7 @@ Robot Parser::build_robot(void)
 
     // Link name to link
     std::map<std::string, Link> link_hash;
-    for (const pugi::xml_node& link : doc_.child("robot").children("link")) {
+    for (const pugi::xml_node& link : doc.child("robot").children("link")) {
         Link l = xml_node_to_link(link);
         CHECK_F(link_hash.find(l.name) == link_hash.end());
         link_hash.insert({l.name, l});
@@ -322,15 +324,15 @@ Robot Parser::build_robot(void)
     return robot;
 }
 
-pugi::xml_node Parser::find_root()
+pugi::xml_node Parser::find_root(const pugi::xml_document& doc)
 {
     pugi::xml_node root_link;
     std::set<std::string> child_link_names;
 
-    for (pugi::xml_node joint : doc_.child("robot").children("joint")) {
+    for (const pugi::xml_node joint : doc.child("robot").children("joint")) {
         child_link_names.insert(joint.child("child").attribute("link").value());
     }
-    for (pugi::xml_node link : doc_.child("robot").children("link")) {
+    for (const pugi::xml_node link : doc.child("robot").children("link")) {
         if (child_link_names.find(link.attribute("name").value()) == child_link_names.end()) {
             root_link = link;
             break;
