@@ -13,6 +13,11 @@
 
 namespace urdf {
 
+static inline Matrix MatMul(const Matrix& left, const Matrix& right)
+{
+    return MatrixMultiply(right, left);
+}
+
 ::Mesh GenMeshCenteredCylinder(float radius, float height, int slices)
 {
     ::Mesh mesh = { 0 };
@@ -102,9 +107,17 @@ Origin::Origin(const char *xyz_s, const char *rpy_s)
     xyz.x = xyz.y = xyz.z = 0.0f;
     rpy.x = rpy.y = rpy.z = 0.0f;
 
-    if (xyz_s) store_vec3(xyz_s, xyz);
-    if (rpy_s) store_vec3(rpy_s, rpy);
+    if (!xyz_s || std::strlen(xyz_s) == 0) {
+        LOG_F(WARNING, "Origin xyz is empty");
+    } else {
+        store_vec3(xyz_s, xyz);
+    }
 
+    if (!rpy_s || std::strlen(rpy_s) == 0) {
+        LOG_F(WARNING, "Origin rpy is empty");
+    } else {
+        store_vec3(rpy_s, rpy);
+    }
 }
 
 Origin::Origin(const Vector3& xyz, const Vector3& rpy)
@@ -266,6 +279,7 @@ Robot Parser::build_robot(const char *urdf_file)
 
     auto tree_root = std::make_shared<LinkNode>();
     tree_root->link = xml_node_to_link(root_link);
+    tree_root->T = MatrixIdentity();
 
     // Create all materials
     // TODO: support loading materials that are defined within the link
@@ -767,22 +781,25 @@ void Robot::forward_kinematics(void)
 void Robot::forward_kinematics(LinkNodePtr& link)
 {
     std::function<void (LinkNodePtr&)> recursion = [&](LinkNodePtr& node){
-        for (auto& joint_node : node->children) {
-            const Matrix& w_T_p = node->T;
+        const Matrix& w_T_p = node->T;
 
+        for (auto& joint_node : node->children) {
             // Forward kinematics
-            const Matrix p_T_c = origin_to_matrix(joint_node->joint.origin);
-            const Matrix w_T_c = MatrixMultiply(w_T_p, p_T_c);
+            const Matrix p_T_j = origin_to_matrix(joint_node->joint.origin);
+            const Matrix j_T_c = MatrixIdentity();  // TODO: joint -> child transform
+            const Matrix w_T_c = MatMul(w_T_p, MatMul(p_T_j, j_T_c));
             joint_node->child->T = w_T_c;
 
             // Update visual transform
-            joint_node->child->visual_model.transform =
-                origin_to_matrix(joint_node->child->link.visual->origin);
+            const Matrix c_T_v = origin_to_matrix(joint_node->child->link.visual->origin);
+            const Matrix w_T_v = MatMul(w_T_c, c_T_v);
+            joint_node->child->visual_model.transform = w_T_v;
 
             // Update collision transform
             for (int i = 0; i < joint_node->child->collision_models.size(); ++i) {
-                joint_node->child->collision_models[i].transform =
-                    origin_to_matrix(joint_node->child->link.collision[i].origin);
+                const Matrix c_T_col = origin_to_matrix(joint_node->child->link.collision[i].origin);
+                const Matrix w_T_col = MatMul(w_T_c, c_T_col);
+                joint_node->child->collision_models[i].transform = w_T_col;
             }
 
             recursion(joint_node->child);
@@ -797,9 +814,9 @@ Matrix Robot::origin_to_matrix(std::optional<Origin>& origin)
     Matrix T = MatrixIdentity();
 
     if (origin) {
-        T = MatrixMultiply(
-            MatrixRotateXYZ(origin->rpy),
-            MatrixTranslate(origin->xyz.x, origin->xyz.y, origin->xyz.z)
+        T = MatMul(
+            MatrixTranslate(origin->xyz.x, origin->xyz.y, origin->xyz.z),
+            MatrixRotateXYZ(origin->rpy)
         );
     }
 
