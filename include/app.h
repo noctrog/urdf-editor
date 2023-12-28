@@ -20,6 +20,9 @@ private:
     void draw();
     void cleanup();
 
+    void drawToolbar();
+    void drawTree();
+
     Camera camera_;
     Shader shader_;
     urdf::Parser urdf_parser_;
@@ -29,4 +32,7 @@ private:
 
     bool bOrbiting_; // TODO
     bool bWindowShouldClose_;
+
+    urdf::TreeNodePtr hovered_node_;
+    urdf::TreeNodePtr selected_node_;
 };

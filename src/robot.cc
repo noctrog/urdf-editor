@@ -242,6 +242,8 @@ Joint::Joint(const char *_name, const char *_parent, const char *_child, const c
     }
 }
 
+TreeNode::~TreeNode() { }
+
 LinkNode::LinkNode()
     : T(MatrixIdentity())
 {
@@ -250,6 +252,12 @@ LinkNode::LinkNode()
 
 LinkNode::LinkNode(const Link& link, const JointNodePtr& parent_joint)
     : link(link), parent(parent_joint), T(MatrixIdentity())
+{
+
+}
+
+JointNode::JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNodePtr& child)
+    : joint(joint), parent(parent), child(child)
 {
 
 }
@@ -533,7 +541,7 @@ void Parser::export_robot(const Robot& robot, std::string out_filename)
     pugi::xml_node robot_root = out_doc.append_child("robot");
 
     // save links
-    std::deque<LinkNodePtr> deq {root_node};
+    std::deque<const LinkNodePtr> deq {root_node};
     while (not deq.empty()) {
         const auto& current_link = deq.front();
         deq.pop_front();
@@ -547,7 +555,7 @@ void Parser::export_robot(const Robot& robot, std::string out_filename)
     }
 
     // save joints
-    deq = std::deque<LinkNodePtr> {root_node};
+    deq = std::deque<const LinkNodePtr> {root_node};
     while (not deq.empty()) {
         const auto& current_link = deq.front();
         deq.pop_front();
@@ -870,16 +878,20 @@ void Robot::build_geometry()
     }
 }
 
-void Robot::draw() const
+void Robot::draw(const LinkNodePtr& highlighted) const
 {
-    std::deque<LinkNodePtr> deq {root_};
+    std::deque<const LinkNodePtr> deq {root_};
 
     while (not deq.empty()) {
-        const auto& link = deq.front();
+        const LinkNodePtr& link = deq.front();
         deq.pop_front();
 
         if (link->link.visual) {
-            DrawModel(link->visual_model, Vector3Zero(), 1.0, WHITE);
+            if (highlighted.get() == link.get()) {
+                DrawModel(link->visual_model, Vector3Zero(), 1.0, RED);
+            } else {
+                DrawModel(link->visual_model, Vector3Zero(), 1.0, WHITE);
+            }
         }
 
         for (const Model& model : link->collision_models) {
@@ -914,7 +926,7 @@ void Robot::set_shader(const Shader& sh)
 
 void Robot::print_tree() const
 {
-    std::deque<LinkNodePtr> deq {root_};
+    std::deque<const LinkNodePtr> deq {root_};
 
     while (not deq.empty()) {
         const auto& current_link = deq.front();

@@ -131,12 +131,24 @@ void App::draw()
 
         DrawGridZUp(10, 1.0f);
 
-        if (robot_) robot_->draw();
+        if (robot_) {
+            auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
+            robot_->draw(hovered_node);
+        }
 
     EndMode3D();
 
     rlImGuiBegin();
 
+    drawTree();
+    drawToolbar();
+
+    // end ImGui Content
+    rlImGuiEnd();
+}
+
+void App::drawToolbar()
+{
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             // File menu items go here
@@ -200,9 +212,57 @@ void App::draw()
 
         ImGui::EndMainMenuBar();
     }
+}
 
-    // end ImGui Content
-    rlImGuiEnd();
+void App::drawTree()
+{
+    ImGui::Begin("Robot Tree");
+
+
+    if (not robot_) {
+        ImGui::Text("No robot loaded");
+    } else {
+        ImGuiTreeNodeFlags default_flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow;
+
+        urdf::LinkNodePtr current_link = robot_->get_root();
+
+        std::function<void (const urdf::LinkNodePtr&)> recursion = [&](auto link){
+            if (not link) return;
+
+            if (ImGui::TreeNodeEx((link->link.name + " (Link)").c_str(),
+                                  default_flags | (link->children.empty() ? ImGuiTreeNodeFlags_Leaf : 0)
+                                                | (link.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0))) {
+                if (ImGui::IsItemHovered()) {
+                    hovered_node_ = link;
+                }
+
+                if (ImGui::IsItemClicked()) {
+                    selected_node_ = link;
+                }
+
+                for (const urdf::JointNodePtr& joint : link->children) {
+                    if (ImGui::TreeNodeEx((joint->joint.name + " (Joint)").c_str(),
+                                           default_flags | (joint.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0))) {
+                        if (ImGui::IsItemHovered()) {
+                            hovered_node_ = nullptr;
+                        }
+
+                        if (ImGui::IsItemClicked()) {
+                            selected_node_ = joint;
+                        }
+
+                        recursion(joint->child);
+                        ImGui::TreePop();
+                    }
+                }
+                ImGui::TreePop();
+            }
+        };
+
+        recursion(current_link);
+    }
+
+    ImGui::End();
 }
 
 void App::cleanup()

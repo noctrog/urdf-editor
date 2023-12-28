@@ -1,6 +1,5 @@
 #pragma once
 
-#include <vector>
 #include <optional>
 #include <map>
 
@@ -155,13 +154,19 @@ struct Joint {
     // TODO: mimic
 };
 
+struct TreeNode {
+    TreeNode() = default;
+    virtual ~TreeNode() = 0;
+};
+
 struct LinkNode;
 struct JointNode;
 
+using TreeNodePtr = std::shared_ptr<TreeNode>;
 using LinkNodePtr = std::shared_ptr<LinkNode>;
 using JointNodePtr = std::shared_ptr<JointNode>;
 
-struct LinkNode
+struct LinkNode : TreeNode
 {
     LinkNode();
     LinkNode(const Link& link, const JointNodePtr& parent_joint);
@@ -179,8 +184,10 @@ struct LinkNode
     Matrix T;
 };
 
-struct JointNode
+struct JointNode : TreeNode
 {
+    JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNodePtr& child);
+
     Joint joint;
     std::shared_ptr<LinkNode> parent;
     std::shared_ptr<LinkNode> child;
@@ -201,9 +208,11 @@ public:
 
     void set_shader(const Shader& shader);
 
-    void draw() const;
+    void draw(const LinkNodePtr& highlighted = nullptr) const;
 
     LinkNodePtr get_root(void) const;
+
+    LinkNodePtr get_link(const Ray& ray);
 
     const std::map<std::string, Material>& get_materials(void) const;
 
