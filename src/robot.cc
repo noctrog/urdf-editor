@@ -188,8 +188,19 @@ Sphere::Sphere(float _radius)
     return GenMeshSphere(radius, 32, 32);
 }
 
+Mesh::Mesh(const char *filename)
+    : filename(filename)
+{
+
+}
+
+::Mesh Mesh::generateGeometry()
+{
+    return GenMeshSphere(1.0, 32, 32); // TODO import geometry
+}
+
 Inertia::Inertia(float ixx, float iyy, float izz, float ixy, float ixz, float iyz)
-    : ixx_(ixx), iyy_(iyy), izz_(izz), ixy_(ixy), ixz_(ixz), iyz_(iyz)
+    : ixx(ixx), iyy(iyy), izz(izz), ixy(ixy), ixz(ixz), iyz(iyz)
 {
 
 }
@@ -198,7 +209,7 @@ Inertial::Inertial(const char *xyz, const char *rpy,
                    float mass,
                    float ixx, float iyy, float izz,
                    float ixy, float ixz, float iyz)
-    : origin_(xyz, rpy), mass_(mass), inertia_(ixx, iyy, izz, ixy, ixz, iyz)
+    : origin(xyz, rpy), mass(mass), inertia(ixx, iyy, izz, ixy, ixz, iyz)
 {
 
 }
@@ -254,6 +265,22 @@ LinkNode::LinkNode(const Link& link, const JointNodePtr& parent_joint)
     : link(link), parent(parent_joint), T(MatrixIdentity())
 {
 
+}
+
+void LinkNode::AddCollision()
+{
+    link.collision.push_back(urdf::Collision());
+    link.collision.back().geometry.type = std::make_shared<urdf::Box>();
+    collision_mesh.emplace_back(link.collision.back().geometry.type->generateGeometry());
+    collision_models.push_back(LoadModelFromMesh(collision_mesh.back()));
+}
+
+void LinkNode::DeleteCollision(int i)
+{
+    link.collision.erase(link.collision.begin() + i);
+    UnloadMesh(collision_mesh[i]);
+    collision_mesh.erase(collision_mesh.begin() + i);
+    collision_models.erase(collision_models.begin() + i);
 }
 
 JointNode::JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNodePtr& child)
@@ -688,18 +715,18 @@ void Parser::inertial_to_xml_node(pugi::xml_node& xml_node, const Inertial& iner
     xml_node.set_name("inertial");
 
     pugi::xml_node mass_node = xml_node.append_child("mass");
-    mass_node.append_attribute("value") = inertial.mass_;
+    mass_node.append_attribute("value") = inertial.mass;
 
     pugi::xml_node inertia_node = xml_node.append_child("inertia");
-    inertia_node.append_attribute("ixx") = inertial.inertia_.ixx_;
-    inertia_node.append_attribute("iyy") = inertial.inertia_.iyy_;
-    inertia_node.append_attribute("izz") = inertial.inertia_.izz_;
-    inertia_node.append_attribute("ixy") = inertial.inertia_.ixy_;
-    inertia_node.append_attribute("ixz") = inertial.inertia_.ixz_;
-    inertia_node.append_attribute("iyz") = inertial.inertia_.iyz_;
+    inertia_node.append_attribute("ixx") = inertial.inertia.ixx;
+    inertia_node.append_attribute("iyy") = inertial.inertia.iyy;
+    inertia_node.append_attribute("izz") = inertial.inertia.izz;
+    inertia_node.append_attribute("ixy") = inertial.inertia.ixy;
+    inertia_node.append_attribute("ixz") = inertial.inertia.ixz;
+    inertia_node.append_attribute("iyz") = inertial.inertia.iyz;
 
     pugi::xml_node origin_node = xml_node.append_child("origin");
-    origin_to_xml_node(origin_node, inertial.origin_);
+    origin_to_xml_node(origin_node, inertial.origin);
 }
 
 void Parser::origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin)

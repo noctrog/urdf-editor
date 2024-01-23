@@ -54,10 +54,12 @@ struct Sphere : GeometryType {
     virtual ::Mesh generateGeometry() override;
 };
 
-struct Mesh {
+struct Mesh : GeometryType {
+    Mesh(const char *filename);
+
     std::string filename;
 
-    void generateGeometry(::Mesh& mesh);
+    virtual ::Mesh generateGeometry() override;
 };
 
 // TODO: implement mesh geometry
@@ -75,7 +77,7 @@ struct Material {
 struct Inertia {
     Inertia(float ixx, float iyy, float izz, float ixy, float ixz, float iyz);
 
-    float ixx_, iyy_, izz_, ixy_, ixz_, iyz_;
+    float ixx, iyy, izz, ixy, ixz, iyz;
 };
 
 struct Inertial {
@@ -84,9 +86,9 @@ struct Inertial {
              float ixx = 0.0f, float iyy = 0.0f, float izz = 0.0f,
              float ixy = 0.0f, float ixz = 0.0f, float iyz = 0.0f);
 
-    Origin origin_;
-    float mass_;
-    Inertia inertia_;
+    Origin origin;
+    float mass;
+    Inertia inertia;
 };
 
 struct Visual {
@@ -170,6 +172,9 @@ struct LinkNode : TreeNode
 {
     LinkNode();
     LinkNode(const Link& link, const JointNodePtr& parent_joint);
+
+    void AddCollision();
+    void DeleteCollision(int i);
 
     Link link;
     std::shared_ptr<JointNode> parent;

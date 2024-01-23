@@ -1,14 +1,18 @@
 #include <app.h>
+
 #include <raylib.h>
 #include <raymath.h>
 #include <rlgl.h>
 #include <rlights.h>
 
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
+
 #include <rlImGui.h>
 
 #include <pugixml.hpp>
 #include <loguru.hpp>
+#include <fmt/format.h>
 
 #include <nfd.hpp>
 
@@ -66,10 +70,8 @@ void App::run()
     {
         update();
         BeginDrawing();
-        {
-            ClearBackground(RAYWHITE);
+            ClearBackground(LIGHTGRAY);
             draw();
-        }
         EndDrawing();
 
         bWindowShouldClose_ |= WindowShouldClose();
@@ -80,8 +82,8 @@ void App::run()
 
 void App::setup()
 {
-    const int screenWidth = 800;
-    const int screenHeight = 450;
+    const int screenWidth = 1200;
+    const int screenHeight = 800;
     SetConfigFlags(FLAG_MSAA_4X_HINT);
     InitWindow(screenWidth, screenHeight, "URDF Editor");
 
@@ -100,7 +102,7 @@ void App::setup()
     lights[0] = CreateLight(LIGHT_DIRECTIONAL, Vector3{ 1, 1, 1 }, Vector3Zero(), WHITE, shader_);
 
     // Define the camera to look into our 3d world
-    camera_ = { { 0.0f, 10.0f, 10.0f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 45.0f, 0 };
+    camera_ = { { 0.0f, 1.5f, 2.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 45.0f, 0 };
     bOrbiting_ = false;
     bWindowShouldClose_ = false;
 
@@ -140,8 +142,8 @@ void App::draw()
 
     rlImGuiBegin();
 
-    drawTree();
     drawToolbar();
+    drawSideMenu();
 
     // end ImGui Content
     rlImGuiEnd();
@@ -214,24 +216,39 @@ void App::drawToolbar()
     }
 }
 
-void App::drawTree()
+void App::drawRobotTree()
 {
-    ImGui::Begin("Robot Tree");
+    ImGuiTableFlags table_flags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Hideable | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
 
+    if (ImGui::BeginTable("robot table", 2, table_flags, ImVec2(0, 300))) {
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoResize, 0.9f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide, 0.1f);
+        ImGui::TableHeadersRow();
 
-    if (not robot_) {
-        ImGui::Text("No robot loaded");
-    } else {
-        ImGuiTreeNodeFlags default_flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow;
+        if (not robot_) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("--");
+            ImGui::TableNextColumn();
+            ImGui::Text("--");
+        } else {
+            ImGuiTreeNodeFlags tree_flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAllColumns;
 
-        urdf::LinkNodePtr current_link = robot_->get_root();
+            urdf::LinkNodePtr current_link = robot_->get_root();
 
-        std::function<void (const urdf::LinkNodePtr&)> recursion = [&](auto link){
-            if (not link) return;
+            std::function<void (const urdf::LinkNodePtr&)> recursion = [&](auto link){
+                if (not link) return;
 
-            if (ImGui::TreeNodeEx((link->link.name + " (Link)").c_str(),
-                                  default_flags | (link->children.empty() ? ImGuiTreeNodeFlags_Leaf : 0)
-                                                | (link.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0))) {
+                // Unique ID for drag and drop
+                void* node_id = static_cast<void*>(link.get());
+
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+
+                bool open = ImGui::TreeNodeEx(link->link.name.c_str(),
+                                      tree_flags | (link->children.empty() ? ImGuiTreeNodeFlags_Leaf : 0)
+                                      | (link.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0));
+
                 if (ImGui::IsItemHovered()) {
                     hovered_node_ = link;
                 }
@@ -240,9 +257,35 @@ void App::drawTree()
                     selected_node_ = link;
                 }
 
-                for (const urdf::JointNodePtr& joint : link->children) {
-                    if (ImGui::TreeNodeEx((joint->joint.name + " (Joint)").c_str(),
-                                           default_flags | (joint.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0))) {
+                // Drag source for link node
+                if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                    ImGui::SetDragDropPayload("LINK_NODE", &node_id, sizeof(void*));
+                    ImGui::Text("Moving %s", link->link.name.c_str());
+                    ImGui::EndDragDropSource();
+                }
+
+                // Drop target for joint node
+                if (ImGui::BeginDragDropTarget()) {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("JOINT_NODE")) {
+                        void* dropped_node_id = *(void**)payload->Data;
+                        // TODO: Handle the drop for a joint node (update parent/child relationships)
+                    }
+                    ImGui::EndDragDropTarget();
+                }
+
+                ImGui::TableNextColumn();
+                ImGui::Text("Link");
+
+                if (open) {
+                    for (const urdf::JointNodePtr& joint : link->children) {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+
+                        bool open = ImGui::TreeNodeEx(joint->joint.name.c_str(),
+                                                      tree_flags | (joint.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0));
+
+                        void* joint_node_id = static_cast<void*>(joint.get());
+
                         if (ImGui::IsItemHovered()) {
                             hovered_node_ = nullptr;
                         }
@@ -251,18 +294,258 @@ void App::drawTree()
                             selected_node_ = joint;
                         }
 
-                        recursion(joint->child);
+                        // Drag source for joint node
+                        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                            ImGui::SetDragDropPayload("JOINT_NODE", &joint_node_id, sizeof(void*));
+                            ImGui::Text("Moving %s", joint->joint.name.c_str());
+                            ImGui::EndDragDropSource();
+                        }
+
+                        // Drop target for link node
+                        if (ImGui::BeginDragDropTarget()) {
+                            if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("LINK_NODE")) {
+                                void* dropped_link_node_id = *(void**)payload->Data;
+                                // Handle the drop for a link node (update parent/child relationships)
+                            }
+                            ImGui::EndDragDropTarget();
+                        }
+
+                        ImGui::TableNextColumn();
+                        ImGui::Text("Joint");
+
+                        if (open) {
+                            recursion(joint->child);
+                            ImGui::TreePop();
+                        }
+
+                    }
+                    ImGui::TreePop();
+                }
+            };
+
+            recursion(current_link);
+        }
+
+        ImGui::EndTable();
+    }
+}
+
+void App::drawSideMenu()
+{
+    ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(350, 1000), ImGuiCond_Always);
+
+    ImGui::Begin("Robot Tree", nullptr, ImGuiWindowFlags_NoMove |
+                 ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
+
+    drawRobotTree();
+    ImGui::Separator();
+    drawNodeProperties();
+
+    ImGui::End();
+}
+
+void App::drawNodeProperties(void)
+{
+    if (not selected_node_) return;
+
+    if (auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
+        ImGui::InputText("Name", &link_node->link.name, ImGuiInputTextFlags_None);
+
+        if (ImGui::CollapsingHeader("Inertial")) {
+            if (auto& inertial = link_node->link.inertial) {
+                ImGui::InputFloat("Mass", &inertial->mass);
+
+                originGui(inertial->origin);
+
+                if (ImGui::TreeNode("Inertia")) {
+                    ImGui::InputFloat("ixx", &inertial->inertia.ixx);
+                    ImGui::InputFloat("iyy", &inertial->inertia.iyy);
+                    ImGui::InputFloat("izz", &inertial->inertia.izz);
+                    ImGui::InputFloat("ixy", &inertial->inertia.ixy);
+                    ImGui::InputFloat("ixz", &inertial->inertia.ixz);
+                    ImGui::InputFloat("iyz", &inertial->inertia.iyz);
+                    ImGui::TreePop();
+                }
+            } else {
+                if (ImGui::Button("Create inertial component")) {
+                    link_node->link.inertial = urdf::Inertial();
+                }
+            }
+        }
+        if (ImGui::CollapsingHeader("Visual")) {
+            if (auto& visual = link_node->link.visual) {
+                menuName(visual->name);
+                menuOrigin(visual->origin);
+                menuGeometry(visual->geometry, link_node->visual_mesh, link_node->visual_model);
+            } else {
+                if (ImGui::Button("Create visual component")) {
+                    link_node->link.visual = urdf::Visual();
+                }
+            }
+        }
+        if (ImGui::CollapsingHeader("Collision")) {
+            if (link_node->link.collision.size() > 0) {
+                for (size_t i = 0; i < link_node->link.collision.size(); ++i) {
+                    urdf::Collision& col = link_node->link.collision[i];
+                    if (ImGui::TreeNode(fmt::format("Collision {}", i).c_str())) { // name origin geometry
+                        menuName(col.name);
+                        menuOrigin(col.origin);
+                        menuGeometry(col.geometry, link_node->collision_mesh[i], link_node->collision_models[i]);
+                        if (ImGui::Button("Delete collision component")) {
+                            link_node->DeleteCollision(i);
+                        }
                         ImGui::TreePop();
                     }
                 }
-                ImGui::TreePop();
+                ImGui::Separator();
+                if (ImGui::Button("Add collision component")) {
+                    link_node->AddCollision();
+                }
+            } else {
+                if (ImGui::Button("Create collision component")) {
+                    link_node->link.collision.clear();
+                    link_node->AddCollision();
+                }
             }
-        };
-
-        recursion(current_link);
+        }
+        ImGui::Separator();
+    } else if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
+        ImGui::Text("Joint name: %s", joint_node->joint.name.c_str());
     }
+}
 
-    ImGui::End();
+void App::originGui(urdf::Origin& origin)
+{
+    if (ImGui::TreeNode("Origin")) {
+        float xyz[3] = {origin.xyz.x, origin.xyz.y, origin.xyz.z};
+        float rpy[3] = {origin.rpy.x, origin.rpy.y, origin.rpy.z};
+
+        ImGui::InputFloat3("Position", xyz);
+        ImGui::InputFloat3("Orientation", rpy);
+
+        origin.xyz.x = xyz[0]; origin.xyz.y = xyz[1]; origin.xyz.z = xyz[2];
+        origin.rpy.x = rpy[0]; origin.rpy.y = rpy[1]; origin.rpy.z = rpy[2];
+
+        ImGui::TreePop();
+    }
+}
+
+void App::menuName(std::optional<std::string>& name)
+{
+    if (name) {
+        ImGui::InputText("Name", &(*name));
+    } else {
+        if (ImGui::Button("Create name")) {
+            name = std::string();
+        }
+    }
+}
+
+void App::menuOrigin(std::optional<urdf::Origin>& origin)
+{
+    if (origin) {
+        originGui(*origin);
+    } else {
+        if (ImGui::Button("Create origin")) {
+            origin = urdf::Origin("0 0 0", "0 0 0");
+        }
+    }
+}
+
+void App::menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model)
+{
+    if (ImGui::TreeNode("Geometry")) {
+        if (auto& type = geometry.type) {
+            static const char* geom_types[] = {"Box", "Cylinder", "Sphere", "Mesh"};
+
+            int choice = 0;
+            if (std::dynamic_pointer_cast<urdf::Box>(type)) {
+                choice = 0;
+            } else if (std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
+                choice = 1;
+            } else if (std::dynamic_pointer_cast<urdf::Sphere>(type)) {
+                choice = 2;
+            } else if (std::dynamic_pointer_cast<urdf::Mesh>(type)) {
+                choice = 3;
+            }
+
+            if (ImGui::Combo("dropdown", &choice, geom_types, IM_ARRAYSIZE(geom_types), 4)) {
+                switch (choice) {
+                    case 0:
+                        type = std::make_shared<urdf::Box>();
+                        break;
+                    case 1:
+                        type = std::make_shared<urdf::Cylinder>();
+                        break;
+                    case 2:
+                        type = std::make_shared<urdf::Sphere>();
+                        break;
+                    case 3:
+                        type = std::make_shared<urdf::Mesh>("");
+                        break;
+                    default:
+                        LOG_F(ERROR, "Invalid geometry type");
+                }
+
+                UnloadMesh(mesh);
+                mesh = type->generateGeometry();
+                model.meshes[0] = mesh;
+            }
+
+            switch (choice) {
+                case 0:
+                    if (auto box = std::dynamic_pointer_cast<urdf::Box>(type)) {
+                        if (ImGui::InputFloat3("Size", &box->size.x, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            // TODO update geometry
+                            mesh = type->generateGeometry();
+                        }
+                    }
+                    break;
+                case 1:
+                    if (auto cylinder = std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
+                        bool update = false;
+                        if (ImGui::InputFloat("Radius", &cylinder->radius,
+                            0.01f, 0.1f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            update = true;
+                        }
+                        if (ImGui::InputFloat("Length", &cylinder->length,
+                            0.01f, 0.1f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            update = true;
+                        }
+                        if (update) {
+                            // TODO update geometry
+                            mesh = type->generateGeometry();
+                        }
+                    }
+                    break;
+                case 2:
+                    if (auto sphere = std::dynamic_pointer_cast<urdf::Sphere>(type)) {
+                        if (ImGui::InputFloat("Radius", &sphere->radius,
+                            0.01f, 0.1f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            // TODO update geometry
+                        }
+                    }
+                    break;
+                case 3:
+                    if (auto mesh = std::dynamic_pointer_cast<urdf::Mesh>(type)) {
+                        if (ImGui::InputText("Filename", &mesh->filename, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            // TODO try to load mesh and update
+                        }
+                    }
+                    break;
+                default:
+                    LOG_F(ERROR, "Invalid geometry type");
+            }
+        } else {
+            if (ImGui::Button("Create geometry")) {
+                geometry.type = std::make_shared<urdf::Box>();
+                mesh = geometry.type->generateGeometry();
+                model.meshes[0] = mesh;
+            }
+        }
+        ImGui::TreePop();
+    }
 }
 
 void App::cleanup()

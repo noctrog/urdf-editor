@@ -32,14 +32,20 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
   GIT_TAG v1.1.1
 )
+FetchContent_Declare(
+  fmt
+  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
+  GIT_TAG 10.2.1
+)
 set(LOGURU_WITH_STREAMS TRUE)
-FetchContent_MakeAvailable(raylib imgui pugixml loguru nfd)
+FetchContent_MakeAvailable(raylib imgui pugixml loguru nfd fmt)
 
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
     ${imgui_SOURCE_DIR}/imgui_draw.cpp
     ${imgui_SOURCE_DIR}/imgui_widgets.cpp
     ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
     ${imgui_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
 )
@@ -55,6 +61,6 @@ add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE include)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE raylib imgui pugixml loguru nfd)
+target_link_libraries(${PROJECT_NAME} PRIVATE raylib imgui pugixml loguru nfd fmt)
 
 target_compile_options(${PROJECT_NAME} PUBLIC -Wall -Wfloat-conversion -pedantic)

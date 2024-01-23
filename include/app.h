@@ -21,7 +21,15 @@ private:
     void cleanup();
 
     void drawToolbar();
-    void drawTree();
+    void drawRobotTree();
+    void drawNodeProperties();
+    void drawSideMenu();
+
+    void originGui(urdf::Origin& origin);
+
+    void menuName(std::optional<std::string>& name);
+    void menuOrigin(std::optional<urdf::Origin>& origin);
+    void menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model);
 
     Camera camera_;
     Shader shader_;
