@@ -1,6 +1,8 @@
 #pragma once
 
 #include <optional>
+#include <vector>
+#include <memory>
 #include <map>
 
 #include <pugixml.hpp>

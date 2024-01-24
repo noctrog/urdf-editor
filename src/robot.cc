@@ -2,6 +2,8 @@
 #include <raymath.h>
 #include <external/par_shapes.h>
 
+#include <cstring>
+#include <functional>
 #include <set>
 #include <map>
 #include <deque>
@@ -568,7 +570,7 @@ void Parser::export_robot(const Robot& robot, std::string out_filename)
     pugi::xml_node robot_root = out_doc.append_child("robot");
 
     // save links
-    std::deque<const LinkNodePtr> deq {root_node};
+    std::deque<LinkNodePtr> deq {root_node};
     while (not deq.empty()) {
         const auto& current_link = deq.front();
         deq.pop_front();
@@ -582,7 +584,7 @@ void Parser::export_robot(const Robot& robot, std::string out_filename)
     }
 
     // save joints
-    deq = std::deque<const LinkNodePtr> {root_node};
+    deq = std::deque<LinkNodePtr> {root_node};
     while (not deq.empty()) {
         const auto& current_link = deq.front();
         deq.pop_front();
@@ -831,7 +833,7 @@ void Robot::forward_kinematics(LinkNodePtr& link)
             joint_node->child->visual_model.transform = w_T_v;
 
             // Update collision transform
-            for (int i = 0; i < joint_node->child->collision_models.size(); ++i) {
+            for (size_t i = 0; i < joint_node->child->collision_models.size(); ++i) {
                 const Matrix c_T_col = origin_to_matrix(joint_node->child->link.collision[i].origin);
                 const Matrix w_T_col = MatMul(w_T_c, c_T_col);
                 joint_node->child->collision_models[i].transform = w_T_col;
@@ -907,7 +909,7 @@ void Robot::build_geometry()
 
 void Robot::draw(const LinkNodePtr& highlighted) const
 {
-    std::deque<const LinkNodePtr> deq {root_};
+    std::deque<LinkNodePtr> deq {root_};
 
     while (not deq.empty()) {
         const LinkNodePtr& link = deq.front();
@@ -953,7 +955,7 @@ void Robot::set_shader(const Shader& sh)
 
 void Robot::print_tree() const
 {
-    std::deque<const LinkNodePtr> deq {root_};
+    std::deque<LinkNodePtr> deq {root_};
 
     while (not deq.empty()) {
         const auto& current_link = deq.front();

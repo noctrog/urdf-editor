@@ -1,5 +1,8 @@
 #include <app.h>
 
+#include <functional>
+#include <array>
+
 #include <raylib.h>
 #include <raymath.h>
 #include <rlgl.h>
@@ -17,8 +20,6 @@
 #include <nfd.hpp>
 
 #include <robot.h>
-
-#include <array>
 
 void DrawGridZUp(int slices, float spacing)
 {
