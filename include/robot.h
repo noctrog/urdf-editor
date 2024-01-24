@@ -11,6 +11,7 @@
 namespace urdf {
 
 struct Origin {
+    Origin();
     Origin(const char *xyz, const char *rpy);
     Origin(const Vector3& xyz, const Vector3& rpy);
 
@@ -58,6 +59,7 @@ struct Sphere : GeometryType {
 
 struct Mesh : GeometryType {
     Mesh(const char *filename);
+    virtual ~Mesh() = default;
 
     std::string filename;
 
@@ -107,6 +109,7 @@ struct Collision {
 };
 
 struct Axis {
+    Axis();
     Axis(const Vector3& _xyz);
     Axis(const char *xyz);
 
@@ -114,6 +117,7 @@ struct Axis {
 };
 
 struct Dynamics {
+    Dynamics();
     Dynamics(float _damping, float _friction);
 
     float damping;
@@ -142,8 +146,9 @@ struct Link {
 struct Joint {
     Joint(const char *name, const char *parent, const char *child, const char *type);
 
-    enum Type {
-        REVOLUTE, CONTINUOUS, PRISMATIC, FIXED, FLOATING, PLANAR
+    enum Type : int {
+        REVOLUTE = 0, CONTINUOUS, PRISMATIC, FIXED, FLOATING, PLANAR,
+        NUM_JOINT_TYPES
     };
 
     std::string name;
@@ -240,7 +245,7 @@ public:
     Parser();
     ~Parser();
 
-    Robot build_robot(const char *urdf_file);
+    std::shared_ptr<Robot> build_robot(const char *urdf_file);
 
     void export_robot(const Robot& robot, std::string out_filename);
 

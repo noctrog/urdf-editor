@@ -146,7 +146,6 @@ void App::draw()
     drawToolbar();
     drawSideMenu();
 
-    // end ImGui Content
     rlImGuiEnd();
 }
 
@@ -166,10 +165,11 @@ void App::drawToolbar()
                 if (result == NFD_OKAY) {
                     LOG_F(INFO, "Success! %s", outPath.get());
                     urdf::Parser parser;
-                    robot_ = std::make_shared<urdf::Robot>(parser.build_robot(outPath.get()));
+                    robot_ = parser.build_robot(outPath.get());
                     robot_->set_shader(shader_);
                     robot_->build_geometry();
                     robot_->forward_kinematics();
+                    LOG_F(INFO, "Robot loaded succesfully.");
                 } else if (result == NFD_CANCEL) {
                     LOG_F(INFO, "User pressed cancel.");
                 } else {
@@ -413,6 +413,22 @@ void App::drawNodeProperties(void)
         ImGui::Separator();
     } else if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
         ImGui::Text("Joint name: %s", joint_node->joint.name.c_str());
+
+        static const char* joint_types[] = {"revolute", "continuous", "prismatic", "fixed", "floating", "planar"};
+        int choice = joint_node->joint.type;
+        if (ImGui::Combo("dropdown", &choice, joint_types, IM_ARRAYSIZE(joint_types), urdf::Joint::NUM_JOINT_TYPES)) {
+            joint_node->joint.type = static_cast<urdf::Joint::Type>(choice);
+        }
+
+        // TODO: parent link
+        // TODO: child link
+
+        menuOrigin(joint_node->joint.origin);
+        if (choice != urdf::Joint::FIXED) {
+            menuAxis(joint_node->joint.axis);
+            menuDynamics(joint_node->joint.dynamics);
+            menuLimit(joint_node->joint.limit);
+        }
     }
 }
 
@@ -449,7 +465,53 @@ void App::menuOrigin(std::optional<urdf::Origin>& origin)
         originGui(*origin);
     } else {
         if (ImGui::Button("Create origin")) {
-            origin = urdf::Origin("0 0 0", "0 0 0");
+            origin = urdf::Origin();
+        }
+    }
+}
+
+void App::menuAxis(std::optional<urdf::Axis>& axis)
+{
+    if (axis) {
+        if (ImGui::TreeNode("Axis")) {
+            ImGui::InputFloat3("xyz", &axis->xyz.x);
+            ImGui::TreePop();
+        }
+    } else {
+        if (ImGui::Button("Create axis")) {
+            axis = urdf::Axis();
+        }
+    }
+}
+
+void App::menuDynamics(std::optional<urdf::Dynamics>& dynamics)
+{
+    if (dynamics) {
+        if (ImGui::TreeNode("Dynamics")) {
+            ImGui::InputFloat("Damping", &dynamics->damping);
+            ImGui::InputFloat("Friction", &dynamics->friction);
+            ImGui::TreePop();
+        }
+    } else {
+        if (ImGui::Button("Create dynamics")) {
+            dynamics = urdf::Dynamics();
+        }
+    }
+}
+
+void App::menuLimit(std::optional<urdf::Limit>& limit)
+{
+    if (limit) {
+        if (ImGui::TreeNode("Limit")) {
+            ImGui::InputFloat("Lower", &limit->lower);
+            ImGui::InputFloat("Upper", &limit->upper);
+            ImGui::InputFloat("Effort", &limit->effort);
+            ImGui::InputFloat("Velocity", &limit->velocity);
+            ImGui::TreePop();
+        }
+    } else {
+        if (ImGui::Button("Create limit")) {
+            limit = urdf::Limit(0.0f, 1.0f, 1.0f, 1.0f);
         }
     }
 }

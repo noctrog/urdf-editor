@@ -30,6 +30,9 @@ private:
     void menuName(std::optional<std::string>& name);
     void menuOrigin(std::optional<urdf::Origin>& origin);
     void menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model);
+    void menuAxis(std::optional<urdf::Axis>& axis);
+    void menuDynamics(std::optional<urdf::Dynamics>& dynamics);
+    void menuLimit(std::optional<urdf::Limit>& limit);
 
     Camera camera_;
     Shader shader_;

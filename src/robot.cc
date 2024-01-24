@@ -104,6 +104,8 @@ static void store_vec4(const char *s, Vector4& vec) {
     CHECK_F(iss && (iss >> std::ws).eof(), "store_vec4: invalid string");
 }
 
+Origin::Origin() : xyz{}, rpy{} { }
+
 Origin::Origin(const char *xyz_s, const char *rpy_s)
 {
     xyz.x = xyz.y = xyz.z = 0.0f;
@@ -216,12 +218,16 @@ Inertial::Inertial(const char *xyz, const char *rpy,
 
 }
 
+Axis::Axis() : xyz{} { }
+
 Axis::Axis(const Vector3& _xyz) : xyz(_xyz) { }
 
 Axis::Axis(const char *s)
 {
     store_vec3(s, xyz);
 }
+
+Dynamics::Dynamics() : damping(0.0f), friction(0.0f) { }
 
 Dynamics::Dynamics(float _damping, float _friction) : damping(_damping), friction(_friction) { }
 
@@ -301,7 +307,7 @@ Parser::~Parser()
 
 }
 
-Robot Parser::build_robot(const char *urdf_file)
+std::shared_ptr<Robot> Parser::build_robot(const char *urdf_file)
 {
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_file(urdf_file);
@@ -368,7 +374,7 @@ Robot Parser::build_robot(const char *urdf_file)
         }
     }
 
-    Robot robot(tree_root, materials);
+    std::shared_ptr<Robot> robot = std::make_shared<Robot>(tree_root, materials);
 
     LOG_F(INFO, "URDF Tree built successfully!");
 
@@ -943,8 +949,13 @@ void Robot::set_shader(const Shader& sh)
         const auto& current_link = deq.front();
         deq.pop_front();
 
-        if (::Material *mat = current_link->visual_model.materials) {
-            mat[0].shader = visual_shader_;
+        if (current_link->visual_model.materialCount > 0) {
+            if (::Material *mat = current_link->visual_model.materials) {
+                mat[0].shader = visual_shader_;
+            }
+        } else {
+            LOG_F(WARNING, "Link %s visual model does not have materials", current_link->link.name.c_str());
+            LOG_F(WARNING, "Link %s has %d meshes", current_link->link.name.c_str(), current_link->visual_model.meshCount);
         }
 
         for (const auto& joint : current_link->children) {
