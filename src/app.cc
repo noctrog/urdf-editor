@@ -416,6 +416,7 @@ void App::drawNodeProperties(void)
 
         static const char* joint_types[] = {"revolute", "continuous", "prismatic", "fixed", "floating", "planar"};
         int choice = joint_node->joint.type;
+        LOG_F(INFO, "Choice: %d", choice);
         if (ImGui::Combo("dropdown", &choice, joint_types, IM_ARRAYSIZE(joint_types), urdf::Joint::NUM_JOINT_TYPES)) {
             joint_node->joint.type = static_cast<urdf::Joint::Type>(choice);
         }
@@ -475,6 +476,9 @@ void App::menuAxis(std::optional<urdf::Axis>& axis)
     if (axis) {
         if (ImGui::TreeNode("Axis")) {
             ImGui::InputFloat3("xyz", &axis->xyz.x);
+            if (ImGui::Button("Delete axis")) {
+                axis = std::nullopt;
+            }
             ImGui::TreePop();
         }
     } else {
@@ -490,6 +494,9 @@ void App::menuDynamics(std::optional<urdf::Dynamics>& dynamics)
         if (ImGui::TreeNode("Dynamics")) {
             ImGui::InputFloat("Damping", &dynamics->damping);
             ImGui::InputFloat("Friction", &dynamics->friction);
+            if (ImGui::Button("Delete dynamics")) {
+                dynamics = std::nullopt;
+            }
             ImGui::TreePop();
         }
     } else {
@@ -507,6 +514,9 @@ void App::menuLimit(std::optional<urdf::Limit>& limit)
             ImGui::InputFloat("Upper", &limit->upper);
             ImGui::InputFloat("Effort", &limit->effort);
             ImGui::InputFloat("Velocity", &limit->velocity);
+            if (ImGui::Button("Delete limit")) {
+                limit = std::nullopt;
+            }
             ImGui::TreePop();
         }
     } else {

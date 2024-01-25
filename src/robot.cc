@@ -258,6 +258,9 @@ Joint::Joint(const char *_name, const char *_parent, const char *_child, const c
         type = FLOATING;
     } else if (stype == "planar") {
         type = PLANAR;
+    } else {
+        LOG_F(WARNING, "Unknown joint type: %s", _type);
+        type = FIXED;
     }
 }
 
@@ -458,7 +461,7 @@ Joint Parser::xml_node_to_joint(const pugi::xml_node& xml_node)
         xml_node.attribute("name").as_string(),
         xml_node.child("parent").attribute("link").as_string(),
         xml_node.child("child").attribute("link").as_string(),
-        xml_node.child("type").attribute("name").as_string()
+        xml_node.attribute("type").as_string()
     );
     if (xml_node.child("origin")) {
         joint.origin = Origin(
