@@ -166,9 +166,9 @@ void App::drawToolbar()
                     LOG_F(INFO, "Success! %s", outPath.get());
                     urdf::Parser parser;
                     robot_ = parser.build_robot(outPath.get());
-                    robot_->set_shader(shader_);
                     robot_->build_geometry();
                     robot_->forward_kinematics();
+                    robot_->set_shader(shader_);
                     LOG_F(INFO, "Robot loaded succesfully.");
                 } else if (result == NFD_CANCEL) {
                     LOG_F(INFO, "User pressed cancel.");
