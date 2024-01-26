@@ -18,6 +18,8 @@ private:
     void setup();
     void update();
     void draw();
+    void draw_menu();
+    void draw_scene();
     void cleanup();
 
     void drawToolbar();
@@ -43,7 +45,10 @@ private:
 
     bool bOrbiting_; // TODO
     bool bWindowShouldClose_;
+    int menubar_height_;
 
     urdf::TreeNodePtr hovered_node_;
     urdf::TreeNodePtr selected_node_;
+
+    RenderTexture view_texture_;
 };

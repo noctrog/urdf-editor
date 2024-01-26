@@ -70,11 +70,7 @@ void App::run()
     while (not bWindowShouldClose_)
     {
         update();
-        BeginDrawing();
-            ClearBackground(LIGHTGRAY);
-            draw();
-        EndDrawing();
-
+        draw();
         bWindowShouldClose_ |= WindowShouldClose();
     }
 
@@ -85,7 +81,7 @@ void App::setup()
 {
     const int screenWidth = 1200;
     const int screenHeight = 800;
-    SetConfigFlags(FLAG_MSAA_4X_HINT);
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(screenWidth, screenHeight, "URDF Editor");
 
     shader_ = LoadShader("./resources/shaders/lighting.vs", "./resources/shaders/lighting.fs");
@@ -109,10 +105,20 @@ void App::setup()
 
     SetTargetFPS(120);
     rlImGuiSetup(true);
+
+    // Draw the menu once so we can retrieve the toolbar height
+    draw_menu();
+
+    view_texture_ = LoadRenderTexture((GetScreenWidth() - 350), GetScreenHeight() - menubar_height_);
 }
 
 void App::update()
 {
+    if (IsWindowResized()) {
+        UnloadRenderTexture(view_texture_);
+        view_texture_ = LoadRenderTexture((GetScreenWidth() - 350), GetScreenHeight() - menubar_height_);
+    }
+
     // Update
     if (bOrbiting_) {
         UpdateCamera(&camera_, CAMERA_THIRD_PERSON);
@@ -128,18 +134,11 @@ void App::update()
     }
 }
 
-void App::draw()
+void App::draw_menu()
 {
-    BeginMode3D(camera_);
+    BeginDrawing();
 
-        DrawGridZUp(10, 1.0f);
-
-        if (robot_) {
-            auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
-            robot_->draw(hovered_node);
-        }
-
-    EndMode3D();
+    ClearBackground(DARKGRAY);
 
     rlImGuiBegin();
 
@@ -147,6 +146,32 @@ void App::draw()
     drawSideMenu();
 
     rlImGuiEnd();
+    EndDrawing();
+}
+
+void App::draw_scene()
+{
+    BeginTextureMode(view_texture_);
+
+    ClearBackground(LIGHTGRAY);
+
+    BeginMode3D(camera_);
+
+    DrawGridZUp(10, 1.0f);
+
+    if (robot_) {
+        auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
+        robot_->draw(hovered_node);
+    }
+
+    EndMode3D();
+    EndTextureMode();
+}
+
+void App::draw()
+{
+    draw_scene(); // Draw to render texture
+    draw_menu();  // Draw to screen
 }
 
 void App::drawToolbar()
@@ -213,8 +238,10 @@ void App::drawToolbar()
             ImGui::EndMenu();
         }
 
-        ImGui::EndMainMenuBar();
     }
+
+    menubar_height_ = static_cast<int>(ImGui::GetWindowSize().y);
+    ImGui::EndMainMenuBar();
 }
 
 void App::drawRobotTree()
@@ -334,7 +361,7 @@ void App::drawRobotTree()
 void App::drawSideMenu()
 {
     ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(350, 1000), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(350, GetScreenHeight() - ImGui::GetFrameHeight()), ImGuiCond_Always);
 
     ImGui::Begin("Robot Tree", nullptr, ImGuiWindowFlags_NoMove |
                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
@@ -343,6 +370,14 @@ void App::drawSideMenu()
     ImGui::Separator();
     drawNodeProperties();
 
+    ImGui::End();
+
+    ImGui::SetNextWindowPos(ImVec2(350, ImGui::GetFrameHeight()), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x - 350,
+                                    ImGui::GetIO().DisplaySize.y - ImGui::GetFrameHeight()),
+                             ImGuiCond_Always);
+    ImGui::Begin("View", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
+    rlImGuiImageRenderTextureFit(&view_texture_, true);
     ImGui::End();
 }
 
@@ -416,7 +451,6 @@ void App::drawNodeProperties(void)
 
         static const char* joint_types[] = {"revolute", "continuous", "prismatic", "fixed", "floating", "planar"};
         int choice = joint_node->joint.type;
-        LOG_F(INFO, "Choice: %d", choice);
         if (ImGui::Combo("dropdown", &choice, joint_types, IM_ARRAYSIZE(joint_types), urdf::Joint::NUM_JOINT_TYPES)) {
             joint_node->joint.type = static_cast<urdf::Joint::Type>(choice);
         }
@@ -623,6 +657,7 @@ void App::menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model)
 
 void App::cleanup()
 {
+    UnloadRenderTexture(view_texture_);
     UnloadShader(shader_);
     rlImGuiShutdown();      // Close rl gui
     CloseWindow();          // Close window and OpenGL context
