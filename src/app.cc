@@ -114,6 +114,8 @@ void App::setup()
 
 void App::update()
 {
+    command_buffer_.execute();
+
     if (IsWindowResized()) {
         UnloadRenderTexture(view_texture_);
         view_texture_ = LoadRenderTexture((GetScreenWidth() - 350), GetScreenHeight() - menubar_height_);
@@ -131,6 +133,13 @@ void App::update()
         bOrbiting_ = true;
     } else {
         bOrbiting_ = false;
+    }
+
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Z)) {
+        command_buffer_.undo();
+    }
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Y)) {
+        command_buffer_.redo();
     }
 }
 
@@ -188,13 +197,7 @@ void App::drawToolbar()
                 // show the dialog
                 nfdresult_t result = NFD::OpenDialog(outPath, filterItem, 1);
                 if (result == NFD_OKAY) {
-                    LOG_F(INFO, "Success! %s", outPath.get());
-                    urdf::Parser parser;
-                    robot_ = parser.build_robot(outPath.get());
-                    robot_->build_geometry();
-                    robot_->forward_kinematics();
-                    robot_->set_shader(shader_);
-                    LOG_F(INFO, "Robot loaded succesfully.");
+                    command_buffer_.add(std::make_shared<LoadRobotCommand>(outPath.get(), robot_, shader_));
                 } else if (result == NFD_CANCEL) {
                     LOG_F(INFO, "User pressed cancel.");
                 } else {
@@ -208,8 +211,7 @@ void App::drawToolbar()
                 nfdresult_t result = NFD::SaveDialog(outPath, filterItem, 1);
                 if (result == NFD_OKAY) {
                     LOG_F(INFO, "Success! %s", outPath.get());
-                    urdf::Parser parser;
-                    parser.export_robot(*robot_, outPath.get());
+                    export_robot(*robot_, outPath.get());
                 } else if (result == NFD_CANCEL) {
                     LOG_F(INFO, "User pressed cancel.");
                 } else {
@@ -225,10 +227,12 @@ void App::drawToolbar()
 
         if (ImGui::BeginMenu("Edit")) {
             // Edit menu items go here
-            ImGui::MenuItem("Undo", "Ctrl+Z");
-            ImGui::MenuItem("Redo", "Ctrl+Y");
-            ImGui::MenuItem("Copy", "Ctrl+C");
-            ImGui::MenuItem("Paste", "Ctrl+V");
+            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
+                command_buffer_.undo();
+            }
+            if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
+                command_buffer_.redo();
+            }
             ImGui::EndMenu();
         }
 
@@ -386,7 +390,7 @@ void App::drawNodeProperties(void)
     if (not selected_node_) return;
 
     if (auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
-        ImGui::InputText("Name", &link_node->link.name, ImGuiInputTextFlags_None);
+        ImGui::InputText("Name##link", &link_node->link.name, ImGuiInputTextFlags_None);
 
         if (ImGui::CollapsingHeader("Inertial")) {
             if (auto& inertial = link_node->link.inertial) {
@@ -411,7 +415,7 @@ void App::drawNodeProperties(void)
         }
         if (ImGui::CollapsingHeader("Visual")) {
             if (auto& visual = link_node->link.visual) {
-                menuName(visual->name);
+                menuName(visual->name, "visual");
                 menuOrigin(visual->origin);
                 menuGeometry(visual->geometry, link_node->visual_mesh, link_node->visual_model);
             } else {
@@ -425,7 +429,7 @@ void App::drawNodeProperties(void)
                 for (size_t i = 0; i < link_node->link.collision.size(); ++i) {
                     urdf::Collision& col = link_node->link.collision[i];
                     if (ImGui::TreeNode(fmt::format("Collision {}", i).c_str())) { // name origin geometry
-                        menuName(col.name);
+                        menuName(col.name, "collision");
                         menuOrigin(col.origin);
                         menuGeometry(col.geometry, link_node->collision_mesh[i], link_node->collision_models[i]);
                         if (ImGui::Button("Delete collision component")) {
@@ -483,13 +487,13 @@ void App::originGui(urdf::Origin& origin)
     }
 }
 
-void App::menuName(std::optional<std::string>& name)
+void App::menuName(std::optional<std::string>& name, const char *label)
 {
     if (name) {
         ImGui::InputText("Name", &(*name));
     } else {
         if (ImGui::Button("Create name")) {
-            name = std::string();
+            command_buffer_.add(std::make_shared<CreateNameCommand>(name));
         }
     }
 }
@@ -500,7 +504,7 @@ void App::menuOrigin(std::optional<urdf::Origin>& origin)
         originGui(*origin);
     } else {
         if (ImGui::Button("Create origin")) {
-            origin = urdf::Origin();
+            command_buffer_.add(std::make_shared<CreateOriginCommand>(origin));
         }
     }
 }
@@ -517,7 +521,7 @@ void App::menuAxis(std::optional<urdf::Axis>& axis)
         }
     } else {
         if (ImGui::Button("Create axis")) {
-            axis = urdf::Axis();
+            command_buffer_.add(std::make_shared<CreateAxisCommand>(axis));
         }
     }
 }
@@ -535,7 +539,7 @@ void App::menuDynamics(std::optional<urdf::Dynamics>& dynamics)
         }
     } else {
         if (ImGui::Button("Create dynamics")) {
-            dynamics = urdf::Dynamics();
+            command_buffer_.add(std::make_shared<CreateDynamicsCommand>(dynamics));
         }
     }
 }
@@ -555,7 +559,7 @@ void App::menuLimit(std::optional<urdf::Limit>& limit)
         }
     } else {
         if (ImGui::Button("Create limit")) {
-            limit = urdf::Limit(0.0f, 1.0f, 1.0f, 1.0f);
+            command_buffer_.add(std::make_shared<CreateLimitCommand>(limit));
         }
     }
 }
@@ -563,7 +567,7 @@ void App::menuLimit(std::optional<urdf::Limit>& limit)
 void App::menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model)
 {
     if (ImGui::TreeNode("Geometry")) {
-        if (auto& type = geometry.type) {
+        if (urdf::GeometryTypePtr& type = geometry.type) {
             static const char* geom_types[] = {"Box", "Cylinder", "Sphere", "Mesh"};
 
             int choice = 0;
@@ -580,24 +584,24 @@ void App::menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model)
             if (ImGui::Combo("dropdown", &choice, geom_types, IM_ARRAYSIZE(geom_types), 4)) {
                 switch (choice) {
                     case 0:
-                        type = std::make_shared<urdf::Box>();
+                        command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
+                            type, std::make_shared<urdf::Box>(), geometry, mesh, model));
                         break;
                     case 1:
-                        type = std::make_shared<urdf::Cylinder>();
+                        command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
+                            type, std::make_shared<urdf::Cylinder>(), geometry, mesh, model));
                         break;
                     case 2:
-                        type = std::make_shared<urdf::Sphere>();
+                        command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
+                            type, std::make_shared<urdf::Sphere>(), geometry, mesh, model));
                         break;
                     case 3:
-                        type = std::make_shared<urdf::Mesh>("");
+                        command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
+                            type, std::make_shared<urdf::Mesh>(""), geometry, mesh, model));
                         break;
                     default:
                         LOG_F(ERROR, "Invalid geometry type");
                 }
-
-                UnloadMesh(mesh);
-                mesh = type->generateGeometry();
-                model.meshes[0] = mesh;
             }
 
             switch (choice) {

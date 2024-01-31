@@ -4,6 +4,7 @@
 #include <memory>
 #include <nfd.hpp>
 #include <robot.h>
+#include <command.h>
 
 class App
 {
@@ -29,16 +30,17 @@ private:
 
     void originGui(urdf::Origin& origin);
 
-    void menuName(std::optional<std::string>& name);
+    void menuName(std::optional<std::string>& name, const char *label = "");
     void menuOrigin(std::optional<urdf::Origin>& origin);
     void menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model);
     void menuAxis(std::optional<urdf::Axis>& axis);
     void menuDynamics(std::optional<urdf::Dynamics>& dynamics);
     void menuLimit(std::optional<urdf::Limit>& limit);
 
+    CommandBuffer command_buffer_;
+
     Camera camera_;
     Shader shader_;
-    urdf::Parser urdf_parser_;
     std::shared_ptr<urdf::Robot> robot_;
 
     NFD::Guard nfdguard_;

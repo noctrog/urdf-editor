@@ -300,17 +300,7 @@ JointNode::JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNo
 
 }
 
-Parser::Parser()
-{
-
-}
-
-Parser::~Parser()
-{
-
-}
-
-std::shared_ptr<Robot> Parser::build_robot(const char *urdf_file)
+std::shared_ptr<Robot> build_robot(const char *urdf_file)
 {
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_file(urdf_file);
@@ -384,7 +374,7 @@ std::shared_ptr<Robot> Parser::build_robot(const char *urdf_file)
     return robot;
 }
 
-pugi::xml_node Parser::find_root(const pugi::xml_document& doc)
+pugi::xml_node find_root(const pugi::xml_document& doc)
 {
     pugi::xml_node root_link;
     std::set<std::string> child_link_names;
@@ -402,7 +392,7 @@ pugi::xml_node Parser::find_root(const pugi::xml_document& doc)
     return root_link;
 }
 
-Link Parser::xml_node_to_link(const pugi::xml_node& xml_node)
+Link xml_node_to_link(const pugi::xml_node& xml_node)
 {
     Link link;
 
@@ -455,7 +445,7 @@ Link Parser::xml_node_to_link(const pugi::xml_node& xml_node)
     return link;
 }
 
-Joint Parser::xml_node_to_joint(const pugi::xml_node& xml_node)
+Joint xml_node_to_joint(const pugi::xml_node& xml_node)
 {
     Joint joint(
         xml_node.attribute("name").as_string(),
@@ -491,7 +481,7 @@ Joint Parser::xml_node_to_joint(const pugi::xml_node& xml_node)
     return joint;
 }
 
-std::optional<Origin> Parser::xml_node_to_origin(const pugi::xml_node& xml_node)
+std::optional<Origin> xml_node_to_origin(const pugi::xml_node& xml_node)
 {
     if (xml_node) {
         return Origin(
@@ -503,7 +493,7 @@ std::optional<Origin> Parser::xml_node_to_origin(const pugi::xml_node& xml_node)
     }
 }
 
-std::optional<Inertial> Parser::xml_node_to_inertial(const pugi::xml_node& xml_node)
+std::optional<Inertial> xml_node_to_inertial(const pugi::xml_node& xml_node)
 {
     if (xml_node) {
         return Inertial(
@@ -522,7 +512,7 @@ std::optional<Inertial> Parser::xml_node_to_inertial(const pugi::xml_node& xml_n
     }
 }
 
-Geometry Parser::xml_node_to_geometry(const pugi::xml_node& geom_node)
+Geometry xml_node_to_geometry(const pugi::xml_node& geom_node)
 {
     CHECK_F(static_cast<bool>(geom_node), "Missing geometry tag!");
 
@@ -544,7 +534,7 @@ Geometry Parser::xml_node_to_geometry(const pugi::xml_node& geom_node)
     return geom;
 }
 
-std::optional<Material> Parser::xml_node_to_material(const pugi::xml_node& mat_node)
+std::optional<Material> xml_node_to_material(const pugi::xml_node& mat_node)
 {
     if (mat_node) {
         Material mat;
@@ -571,7 +561,7 @@ std::optional<Material> Parser::xml_node_to_material(const pugi::xml_node& mat_n
     }
 }
 
-void Parser::export_robot(const Robot& robot, std::string out_filename)
+void export_robot(const Robot& robot, std::string out_filename)
 {
     pugi::xml_document out_doc;
     const LinkNodePtr root_node = robot.get_root();
@@ -617,7 +607,7 @@ void Parser::export_robot(const Robot& robot, std::string out_filename)
     }
 }
 
-void Parser::link_to_xml_node(pugi::xml_node& xml_node, const Link& link)
+void link_to_xml_node(pugi::xml_node& xml_node, const Link& link)
 {
     xml_node.set_name("link");
     xml_node.append_attribute("name") = link.name.c_str();
@@ -663,7 +653,7 @@ void Parser::link_to_xml_node(pugi::xml_node& xml_node, const Link& link)
     if (not xml_node) LOG_F(ERROR, "Link node is empty!");
 }
 
-void Parser::joint_to_xml_node(pugi::xml_node& joint_node, const Joint& joint)
+void joint_to_xml_node(pugi::xml_node& joint_node, const Joint& joint)
 {
     joint_node.set_name("joint");
     switch (joint.type) {
@@ -721,7 +711,7 @@ void Parser::joint_to_xml_node(pugi::xml_node& joint_node, const Joint& joint)
     }
 }
 
-void Parser::inertial_to_xml_node(pugi::xml_node& xml_node, const Inertial& inertial)
+void inertial_to_xml_node(pugi::xml_node& xml_node, const Inertial& inertial)
 {
     xml_node.set_name("inertial");
 
@@ -740,7 +730,7 @@ void Parser::inertial_to_xml_node(pugi::xml_node& xml_node, const Inertial& iner
     origin_to_xml_node(origin_node, inertial.origin);
 }
 
-void Parser::origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin)
+void origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin)
 {
     xml_node.set_name("origin");
 
@@ -752,7 +742,7 @@ void Parser::origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin)
         std::to_string(origin.rpy.z)).c_str();
 }
 
-void Parser::geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geometry)
+void geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geometry)
 {
     xml_node.set_name("geometry");
 
@@ -776,7 +766,7 @@ void Parser::geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geom
     }
 }
 
-void Parser::material_to_xml_node(pugi::xml_node& xml_node, const Material& material)
+void material_to_xml_node(pugi::xml_node& xml_node, const Material& material)
 {
     xml_node.set_name("material");
     xml_node.append_attribute("name") = material.name.c_str();

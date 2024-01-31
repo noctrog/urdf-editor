@@ -23,7 +23,7 @@ struct GeometryType {
     virtual ::Mesh generateGeometry() = 0;
 };
 
-struct Box : GeometryType {
+struct Box : public GeometryType {
     Box();
     Box(const char *size);
     Box(const Vector3& size);
@@ -34,7 +34,7 @@ struct Box : GeometryType {
     virtual ::Mesh generateGeometry() override;
 };
 
-struct Cylinder : GeometryType {
+struct Cylinder : public GeometryType {
     Cylinder();
     Cylinder(const char *radius, const char *length);
     Cylinder(float radius, float length);
@@ -46,7 +46,7 @@ struct Cylinder : GeometryType {
     virtual ::Mesh generateGeometry() override;
 };
 
-struct Sphere : GeometryType {
+struct Sphere : public GeometryType {
     Sphere();
     Sphere(const char *radius);
     Sphere(float radius);
@@ -57,7 +57,7 @@ struct Sphere : GeometryType {
     virtual ::Mesh generateGeometry() override;
 };
 
-struct Mesh : GeometryType {
+struct Mesh : public GeometryType {
     Mesh(const char *filename);
     virtual ~Mesh() = default;
 
@@ -68,8 +68,10 @@ struct Mesh : GeometryType {
 
 // TODO: implement mesh geometry
 
+using GeometryTypePtr = std::shared_ptr<GeometryType>;
+
 struct Geometry {
-    std::shared_ptr<GeometryType> type;
+    GeometryTypePtr type;
 };
 
 struct Material {
@@ -240,35 +242,28 @@ private:
     std::map<std::string, Material> materials_;
 };
 
-class Parser {
-public:
-    Parser();
-    ~Parser();
+std::shared_ptr<Robot> build_robot(const char *urdf_file);
 
-    std::shared_ptr<Robot> build_robot(const char *urdf_file);
+void export_robot(const Robot& robot, std::string out_filename);
 
-    void export_robot(const Robot& robot, std::string out_filename);
+pugi::xml_node find_root(const pugi::xml_document& doc);
 
-private:
-    pugi::xml_node find_root(const pugi::xml_document& doc);
+// XML to data structures
+Link xml_node_to_link(const pugi::xml_node& xml_node);
+Joint xml_node_to_joint(const pugi::xml_node& xml_node);
 
-    // XML to data structures
-    Link xml_node_to_link(const pugi::xml_node& xml_node);
-    Joint xml_node_to_joint(const pugi::xml_node& xml_node);
+std::optional<Inertial> xml_node_to_inertial(const pugi::xml_node& xml_node);
+std::optional<Origin> xml_node_to_origin(const pugi::xml_node& xml_node);
+Geometry xml_node_to_geometry(const pugi::xml_node& xml_node);
+std::optional<Material> xml_node_to_material(const pugi::xml_node& xml_node);
 
-    std::optional<Inertial> xml_node_to_inertial(const pugi::xml_node& xml_node);
-    std::optional<Origin> xml_node_to_origin(const pugi::xml_node& xml_node);
-    Geometry xml_node_to_geometry(const pugi::xml_node& xml_node);
-    std::optional<Material> xml_node_to_material(const pugi::xml_node& xml_node);
+// Data structures to XML
+void link_to_xml_node(pugi::xml_node& xml_node, const Link& link);
+void joint_to_xml_node(pugi::xml_node& xml_node, const Joint& joint);
 
-    // Data structures to XML
-    void link_to_xml_node(pugi::xml_node& xml_node, const Link& link);
-    void joint_to_xml_node(pugi::xml_node& xml_node, const Joint& joint);
-
-    void inertial_to_xml_node(pugi::xml_node& xml_node,  const Inertial& inertial);
-    void origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin);
-    void geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geometry);
-    void material_to_xml_node(pugi::xml_node& xml_node, const Material& material);
-};
+void inertial_to_xml_node(pugi::xml_node& xml_node,  const Inertial& inertial);
+void origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin);
+void geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geometry);
+void material_to_xml_node(pugi::xml_node& xml_node, const Material& material);
 
 } // namespace urdf
