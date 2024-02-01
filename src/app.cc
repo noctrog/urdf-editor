@@ -250,7 +250,9 @@ void App::drawToolbar()
 
 void App::drawRobotTree()
 {
-    ImGuiTableFlags table_flags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Hideable | ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
+    ImGuiTableFlags table_flags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
+        ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_Hideable |
+        ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("robot table", 2, table_flags, ImVec2(0, 300))) {
         ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoResize, 0.9f);
@@ -264,7 +266,8 @@ void App::drawRobotTree()
             ImGui::TableNextColumn();
             ImGui::Text("--");
         } else {
-            ImGuiTreeNodeFlags tree_flags = ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAllColumns;
+            ImGuiTreeNodeFlags tree_flags = ImGuiTreeNodeFlags_DefaultOpen |
+                ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAllColumns;
 
             urdf::LinkNodePtr current_link = robot_->get_root();
 
@@ -299,8 +302,9 @@ void App::drawRobotTree()
                 // Drop target for joint node
                 if (ImGui::BeginDragDropTarget()) {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("JOINT_NODE")) {
-                        void* dropped_node_id = *(void**)payload->Data;
-                        // TODO: Handle the drop for a joint node (update parent/child relationships)
+                        urdf::JointNodePtr dropped_joint_node = *(urdf::JointNodePtr*)payload->Data;
+                        LOG_F(INFO, "Dropped joint %s onto link %s", dropped_joint_node->joint.name.c_str(), link->link.name.c_str());
+                        command_buffer_.add(std::make_shared<JointChangeParentCommand>(dropped_joint_node, link, robot_));
                     }
                     ImGui::EndDragDropTarget();
                 }
@@ -309,14 +313,12 @@ void App::drawRobotTree()
                 ImGui::Text("Link");
 
                 if (open) {
-                    for (const urdf::JointNodePtr& joint : link->children) {
+                    for (urdf::JointNodePtr& joint : link->children) {
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
 
                         bool open = ImGui::TreeNodeEx(joint->joint.name.c_str(),
                                                       tree_flags | (joint.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0));
-
-                        void* joint_node_id = static_cast<void*>(joint.get());
 
                         if (ImGui::IsItemHovered()) {
                             hovered_node_ = nullptr;
@@ -328,7 +330,7 @@ void App::drawRobotTree()
 
                         // Drag source for joint node
                         if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-                            ImGui::SetDragDropPayload("JOINT_NODE", &joint_node_id, sizeof(void*));
+                            ImGui::SetDragDropPayload("JOINT_NODE", &joint, sizeof(urdf::JointNodePtr*));
                             ImGui::Text("Moving %s", joint->joint.name.c_str());
                             ImGui::EndDragDropSource();
                         }
@@ -387,7 +389,7 @@ void App::drawSideMenu()
 
 void App::drawNodeProperties(void)
 {
-    if (not selected_node_) return;
+    if (not selected_node_ or not robot_) return;
 
     if (auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
         ImGui::InputText("Name##link", &link_node->link.name, ImGuiInputTextFlags_None);
@@ -459,8 +461,8 @@ void App::drawNodeProperties(void)
             joint_node->joint.type = static_cast<urdf::Joint::Type>(choice);
         }
 
-        // TODO: parent link
-        // TODO: child link
+        ImGui::Text("Parent link: %s", joint_node->parent->link.name.c_str());
+        ImGui::Text("Child link: %s", joint_node->child->link.name.c_str());
 
         menuOrigin(joint_node->joint.origin);
         if (choice != urdf::Joint::FIXED) {

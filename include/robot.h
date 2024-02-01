@@ -186,8 +186,8 @@ struct LinkNode : TreeNode
     void DeleteCollision(int i);
 
     Link link;
-    std::shared_ptr<JointNode> parent;
-    std::vector<std::shared_ptr<JointNode>> children;
+    JointNodePtr parent;
+    std::vector<JointNodePtr> children;
 
     ::Mesh visual_mesh;
     std::vector<::Mesh> collision_mesh;
@@ -203,8 +203,8 @@ struct JointNode : TreeNode
     JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNodePtr& child);
 
     Joint joint;
-    std::shared_ptr<LinkNode> parent;
-    std::shared_ptr<LinkNode> child;
+    LinkNodePtr parent;
+    LinkNodePtr child;
 };
 
 class Robot {
@@ -242,7 +242,9 @@ private:
     std::map<std::string, Material> materials_;
 };
 
-std::shared_ptr<Robot> build_robot(const char *urdf_file);
+using RobotPtr = std::shared_ptr<Robot>;
+
+RobotPtr build_robot(const char *urdf_file);
 
 void export_robot(const Robot& robot, std::string out_filename);
 

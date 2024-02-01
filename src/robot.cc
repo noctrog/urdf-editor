@@ -300,7 +300,7 @@ JointNode::JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNo
 
 }
 
-std::shared_ptr<Robot> build_robot(const char *urdf_file)
+RobotPtr build_robot(const char *urdf_file)
 {
     pugi::xml_document doc;
     pugi::xml_parse_result result = doc.load_file(urdf_file);
@@ -367,7 +367,7 @@ std::shared_ptr<Robot> build_robot(const char *urdf_file)
         }
     }
 
-    std::shared_ptr<Robot> robot = std::make_shared<Robot>(tree_root, materials);
+    RobotPtr robot = std::make_shared<Robot>(tree_root, materials);
 
     LOG_F(INFO, "URDF Tree built successfully!");
 

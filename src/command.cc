@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <command.h>
 
 CommandBuffer::CommandBuffer()
@@ -67,6 +68,39 @@ void LoadRobotCommand::execute()
 void LoadRobotCommand::undo()
 {
     robot_ = old_robot_;
+}
+
+JointChangeParentCommand::JointChangeParentCommand(urdf::JointNodePtr node,
+                                                   urdf::LinkNodePtr new_parent,
+                                                   urdf::RobotPtr robot)
+    : joint_(node), new_parent_(new_parent), old_parent_(node->parent), robot_(robot)
+{
+
+}
+
+void JointChangeParentCommand::execute()
+{
+    old_position_ = std::find(joint_->parent->children.begin(),
+                                             joint_->parent->children.end(),
+                                             joint_);
+    joint_->parent->children.erase(old_position_);
+    new_parent_->children.push_back(joint_);
+
+    joint_->parent = new_parent_;
+    joint_->joint.parent = new_parent_->link.name;
+    robot_->forward_kinematics();
+}
+
+void JointChangeParentCommand::undo()
+{
+    joint_->parent->children.erase(std::find(joint_->parent->children.begin(),
+                                             joint_->parent->children.end(),
+                                             joint_));
+    old_parent_->children.insert(old_position_, joint_);
+
+    joint_->parent = old_parent_;
+    joint_->joint.parent = old_parent_->link.name;
+    robot_->forward_kinematics();
 }
 
 ChangeNameCommand::ChangeNameCommand(const std::string& old_name,

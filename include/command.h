@@ -41,6 +41,21 @@ private:
     const Shader& shader_;
 };
 
+class JointChangeParentCommand : public Command {
+public:
+    JointChangeParentCommand(urdf::JointNodePtr node,
+                             urdf::LinkNodePtr new_parent,
+                             urdf::RobotPtr robot);
+    void execute() override;
+    void undo() override;
+private:
+    urdf::JointNodePtr joint_;
+    urdf::LinkNodePtr new_parent_;
+    urdf::LinkNodePtr old_parent_;
+    urdf::RobotPtr robot_;
+    std::vector<urdf::JointNodePtr>::iterator old_position_;
+};
+
 class ChangeNameCommand : public Command {
 public:
     ChangeNameCommand(const std::string& old_name,
