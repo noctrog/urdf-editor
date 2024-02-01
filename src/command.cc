@@ -1,4 +1,8 @@
+#include <deque>
 #include <algorithm>
+
+#include <fmt/format.h>
+#include <robot.h>
 #include <command.h>
 
 CommandBuffer::CommandBuffer()
@@ -46,6 +50,36 @@ void CommandBuffer::redo()
 
     (*(executed_commands_.begin() + current_command_))->execute();
     current_command_++;
+}
+
+bool CommandBuffer::can_undo()
+{
+    return executed_commands_.begin() + current_command_ != executed_commands_.begin();
+}
+
+bool CommandBuffer::can_redo()
+{
+    return executed_commands_.begin() + current_command_ != executed_commands_.end();
+}
+
+CreateRobotCommand::CreateRobotCommand(std::shared_ptr<urdf::Robot>& robot,
+                                       const Shader& shader)
+    : robot_(robot), shader_(shader)
+{
+
+}
+
+void CreateRobotCommand::execute()
+{
+    old_robot_ = robot_;
+    urdf::LinkNodePtr root = std::make_shared<urdf::LinkNode>(urdf::Link("root"), nullptr);
+    robot_ = std::make_shared<urdf::Robot>(root);
+    robot_->set_shader(shader_);
+}
+
+void CreateRobotCommand::undo()
+{
+    robot_ = old_robot_;
 }
 
 LoadRobotCommand::LoadRobotCommand(const std::string& filename,
@@ -101,6 +135,57 @@ void JointChangeParentCommand::undo()
     joint_->parent = old_parent_;
     joint_->joint.parent = old_parent_->link.name;
     robot_->forward_kinematics();
+}
+
+CreateJointCommand::CreateJointCommand(const char *joint_name,
+                                       urdf::LinkNodePtr& parent,
+                                       urdf::RobotPtr& robot)
+    : joint_name_(joint_name), parent_(parent), robot_(robot)
+{
+
+}
+
+void CreateJointCommand::execute()
+{
+    // Get number of overlapping link and joint names
+    int new_link_count = 0;
+    int new_joint_count = 0;
+    std::deque<urdf::LinkNodePtr> deq;
+    while (not deq.empty()) {
+        const auto& current_link = deq.front();
+        deq.pop_front();
+
+        new_link_count += current_link->link.name.find("New link") != std::string::npos;
+
+        for (const auto& joint : current_link->children) {
+            new_joint_count += joint->joint.name.find(joint_name_) != std::string::npos;
+            deq.push_back(joint->child);
+        }
+    }
+
+    // Rename in case of name collisions
+    if (new_joint_count > 0) joint_name_ += fmt::format(" {}", new_joint_count);
+
+    std::string new_link_name = (new_link_count == 0) ? "New link" : fmt::format("New link {}", new_link_count);
+    urdf::LinkNodePtr child = std::make_shared<urdf::LinkNode>(urdf::Link{ new_link_name }, nullptr);
+
+    // Create new joint and link
+    urdf::JointNodePtr new_joint_ = std::make_shared<urdf::JointNode>(urdf::JointNode {
+        urdf::Joint(joint_name_.c_str(), parent_->link.name.c_str(), new_link_name.c_str(), "fixed"),
+        parent_,
+        child});
+
+    child->parent = new_joint_;
+
+    parent_->children.push_back(new_joint_);
+}
+
+void CreateJointCommand::undo()
+{
+    parent_->children.erase(std::find(parent_->children.begin(),
+                                      parent_->children.end(),
+                                      new_joint_));
+    new_joint_.reset();
 }
 
 ChangeNameCommand::ChangeNameCommand(const std::string& old_name,

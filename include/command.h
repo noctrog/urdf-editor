@@ -21,10 +21,25 @@ public:
     void execute();
     void undo();
     void redo();
+
+    bool can_undo();
+    bool can_redo();
 private:
     std::vector<CommandPtr> executed_commands_;
     std::vector<CommandPtr> new_commands_;
     size_t current_command_;
+};
+
+class CreateRobotCommand : public Command {
+public:
+    CreateRobotCommand(std::shared_ptr<urdf::Robot>& robot,
+                       const Shader& shader);
+    void execute() override;
+    void undo() override;
+private:
+    std::shared_ptr<urdf::Robot>& robot_;
+    std::shared_ptr<urdf::Robot> old_robot_;
+    const Shader& shader_;
 };
 
 class LoadRobotCommand : public Command {
@@ -54,6 +69,20 @@ private:
     urdf::LinkNodePtr old_parent_;
     urdf::RobotPtr robot_;
     std::vector<urdf::JointNodePtr>::iterator old_position_;
+};
+
+class CreateJointCommand : public Command {
+public:
+    CreateJointCommand(const char *joint_name,
+                       urdf::LinkNodePtr& parent,
+                       urdf::RobotPtr& robot);
+    void execute() override;
+    void undo() override;
+private:
+    std::string joint_name_;
+    urdf::LinkNodePtr parent_;
+    urdf::JointNodePtr new_joint_;
+    urdf::RobotPtr& robot_;
 };
 
 class ChangeNameCommand : public Command {

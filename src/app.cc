@@ -226,18 +226,24 @@ void App::drawToolbar()
         }
 
         if (ImGui::BeginMenu("Edit")) {
-            // Edit menu items go here
-            if (ImGui::MenuItem("Undo", "Ctrl+Z")) {
+            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, command_buffer_.can_undo())) {
                 command_buffer_.undo();
             }
-            if (ImGui::MenuItem("Redo", "Ctrl+Y")) {
+            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, command_buffer_.can_redo())) {
                 command_buffer_.redo();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("New Robot", "Ctrl+N")) {
+                command_buffer_.add(std::make_shared<CreateRobotCommand>(robot_, shader_));
+            }
+            auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
+            if (ImGui::MenuItem("Create Joint", "Ctrl+J", false, link_node != nullptr)) {
+                command_buffer_.add(std::make_shared<CreateJointCommand>("New Joint", link_node, robot_));
             }
             ImGui::EndMenu();
         }
 
         if (ImGui::BeginMenu("Help")) {
-            // Help menu items go here
             ImGui::MenuItem("About");
             ImGui::EndMenu();
         }
@@ -423,6 +429,7 @@ void App::drawNodeProperties(void)
             } else {
                 if (ImGui::Button("Create visual component")) {
                     link_node->link.visual = urdf::Visual();
+                    // TODO: generate geometry and initialize properly
                 }
             }
         }
@@ -447,7 +454,7 @@ void App::drawNodeProperties(void)
             } else {
                 if (ImGui::Button("Create collision component")) {
                     link_node->link.collision.clear();
-                    link_node->AddCollision();
+                    link_node->AddCollision();  // TODO: we might need to call forward kinematics here
                 }
             }
         }

@@ -242,6 +242,12 @@ Link::Link()
 
 }
 
+Link::Link(const std::string& name)
+    : name(name)
+{
+
+}
+
 Joint::Joint(const char *_name, const char *_parent, const char *_child, const char *_type)
     : name(_name), parent(_parent), child(_child)
 {
@@ -267,7 +273,7 @@ Joint::Joint(const char *_name, const char *_parent, const char *_child, const c
 TreeNode::~TreeNode() { }
 
 LinkNode::LinkNode()
-    : T(MatrixIdentity())
+    : link("New link"), T(MatrixIdentity())
 {
 
 }
@@ -394,10 +400,8 @@ pugi::xml_node find_root(const pugi::xml_document& doc)
 
 Link xml_node_to_link(const pugi::xml_node& xml_node)
 {
-    Link link;
-
     CHECK_F(static_cast<bool>(xml_node.attribute("name")), "Link has no name");
-    link.name = xml_node.attribute("name").as_string();
+    Link link(xml_node.attribute("name").as_string());
 
     link.inertial = xml_node_to_inertial(xml_node.child("inertial"));
 

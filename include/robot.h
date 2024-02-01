@@ -138,6 +138,7 @@ struct Limit
 
 struct Link {
     Link();
+    Link(const std::string& name);
 
     std::string name;
     std::optional<Inertial> inertial;
