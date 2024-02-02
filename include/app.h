@@ -32,6 +32,7 @@ private:
 
     void menuName(std::optional<std::string>& name, const char *label = "");
     void menuOrigin(std::optional<urdf::Origin>& origin);
+    void menuMaterial(std::optional<std::string>& material_name, const char *label = "");
     void menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model);
     void menuAxis(std::optional<urdf::Axis>& axis);
     void menuDynamics(std::optional<urdf::Dynamics>& dynamics);

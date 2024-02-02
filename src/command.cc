@@ -92,15 +92,21 @@ LoadRobotCommand::LoadRobotCommand(const std::string& filename,
 
 void LoadRobotCommand::execute()
 {
-    old_robot_ = robot_;
-    robot_ = urdf::build_robot(filename_.c_str());
-    robot_->build_geometry();
-    robot_->forward_kinematics();
-    robot_->set_shader(shader_);
+    if (future_robot_) {
+        old_robot_ = robot_;
+        robot_ = future_robot_;
+    } else {
+        old_robot_ = robot_;
+        robot_ = urdf::build_robot(filename_.c_str());
+        robot_->build_geometry();
+        robot_->forward_kinematics();
+        robot_->set_shader(shader_);
+    }
 }
 
 void LoadRobotCommand::undo()
 {
+    future_robot_ = robot_;
     robot_ = old_robot_;
 }
 
@@ -150,7 +156,7 @@ void CreateJointCommand::execute()
     // Get number of overlapping link and joint names
     int new_link_count = 0;
     int new_joint_count = 0;
-    std::deque<urdf::LinkNodePtr> deq;
+    std::deque<urdf::LinkNodePtr> deq { robot_->get_root() };
     while (not deq.empty()) {
         const auto& current_link = deq.front();
         deq.pop_front();
@@ -312,4 +318,89 @@ void ChangeGeometryCommand::undo()
     UnloadMesh(mesh_);
     mesh_ = target_.type->generateGeometry();
     model_.meshes[0] = mesh_;
+}
+
+CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link, const Shader& shader)
+    : link_(link), shader_(shader)
+{
+
+}
+
+void CreateVisualCommand::execute()
+{
+    link_->link.visual = urdf::Visual{
+        std::nullopt, std::nullopt,
+        urdf::Geometry{std::make_shared<urdf::Box>()},
+        std::nullopt};
+    link_->visual_mesh = link_->link.visual->geometry.type->generateGeometry();
+    link_->visual_model = LoadModelFromMesh(link_->visual_mesh);
+    link_->visual_model.materials[0].shader = shader_;
+}
+
+void CreateVisualCommand::undo()
+{
+    UnloadModel(link_->visual_model);
+    link_->link.visual = std::nullopt;
+}
+
+DeleteVisualCommand::DeleteVisualCommand(urdf::LinkNodePtr& link, urdf::RobotPtr& robot)
+    : link_(link), robot_(robot)
+{
+
+}
+
+void DeleteVisualCommand::execute()
+{
+    old_visual_ = *link_->link.visual;
+    shader_ = link_->visual_model.materials[0].shader;
+
+    UnloadModel(link_->visual_model);
+    link_->link.visual = std::nullopt;
+}
+
+void DeleteVisualCommand::undo()
+{
+    link_->link.visual = old_visual_;
+    old_visual_ = urdf::Visual();
+    link_->visual_mesh = link_->link.visual->geometry.type->generateGeometry();
+    link_->visual_model = LoadModelFromMesh(link_->visual_mesh);
+    link_->visual_model.materials[0].shader = shader_;
+    robot_->update_material(link_);
+}
+
+AddCollisionCommand::AddCollisionCommand(urdf::LinkNodePtr& link)
+    : link_(link)
+{
+
+}
+
+void AddCollisionCommand::execute()
+{
+    link_->AddCollision();
+}
+
+void AddCollisionCommand::undo()
+{
+    link_->DeleteCollision(link_->link.collision.size() - 1);
+}
+
+DeleteCollisionCommand::DeleteCollisionCommand(urdf::LinkNodePtr& link, int i)
+    : link_(link), i_(i)
+{
+
+}
+
+void DeleteCollisionCommand::execute()
+{
+    old_collision_ = link_->link.collision[i_];
+    link_->DeleteCollision(i_);
+}
+
+void DeleteCollisionCommand::undo()
+{
+    link_->link.collision.insert(link_->link.collision.begin() + i_, old_collision_);
+    link_->collision_mesh.insert(link_->collision_mesh.begin() + i_,
+                                 old_collision_.geometry.type->generateGeometry());
+    link_->collision_models.insert(link_->collision_models.begin() + i_,
+                                   LoadModelFromMesh(link_->collision_mesh[i_]));
 }

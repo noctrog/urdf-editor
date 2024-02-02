@@ -867,15 +867,8 @@ void Robot::build_geometry()
 {
     std::deque<LinkNodePtr> deq {root_};
 
-    auto set_material_diffuse_color = [](const LinkNodePtr& link, const Vector4& color){
-        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.r = static_cast<char>(color.x * 255.0f);
-        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.g = static_cast<char>(color.y * 255.0f);
-        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.b = static_cast<char>(color.z * 255.0f);
-        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.a = static_cast<char>(color.w * 255.0f);
-    };
-
     while (not deq.empty()) {
-        const LinkNodePtr link = deq.front();
+        LinkNodePtr link = deq.front();
         deq.pop_front();
 
         // Visual model
@@ -883,19 +876,7 @@ void Robot::build_geometry()
             link->visual_mesh = link->link.visual->geometry.type->generateGeometry();
             link->visual_model = LoadModelFromMesh(link->visual_mesh);
             link->visual_model.materials[0].shader = visual_shader_;
-
-            if (link->link.visual->material_name) {
-                const Material& mat = materials_[*link->link.visual->material_name];
-                if (mat.rgba) {
-                    set_material_diffuse_color(link, *mat.rgba);
-                } else {
-                    set_material_diffuse_color(link, Vector4{127, 127, 127, 255});
-                    LOG_F(INFO, "Link: %s. RGBA not found, using default color. Texture is not implemented yet.", link->link.name.c_str());
-                }
-            } else {
-                set_material_diffuse_color(link, Vector4{127, 127, 127, 255});
-                LOG_F(INFO, "Link: %s. No material name specified. Using default color", link->link.name.c_str());
-            }
+            update_material(link);
         }
 
         // Collision model
@@ -907,6 +888,29 @@ void Robot::build_geometry()
         for (const auto& joint : link->children) {
             deq.push_back(joint->child);
         }
+    }
+}
+
+void Robot::update_material(LinkNodePtr& link)
+{
+    auto set_material_diffuse_color = [](const LinkNodePtr& link, const Vector4& color){
+        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.r = static_cast<char>(color.x * 255.0f);
+        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.g = static_cast<char>(color.y * 255.0f);
+        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.b = static_cast<char>(color.z * 255.0f);
+        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.a = static_cast<char>(color.w * 255.0f);
+    };
+
+    if (link->link.visual->material_name) {
+        const Material& mat = materials_[*link->link.visual->material_name];
+        if (mat.rgba) {
+            set_material_diffuse_color(link, *mat.rgba);
+        } else {
+            set_material_diffuse_color(link, Vector4{127, 127, 127, 255});
+            LOG_F(INFO, "Link: %s. RGBA not found, using default color. Texture is not implemented yet.", link->link.name.c_str());
+        }
+    } else {
+        set_material_diffuse_color(link, Vector4{127, 127, 127, 255});
+        LOG_F(INFO, "Link: %s. No material name specified. Using default color", link->link.name.c_str());
     }
 }
 

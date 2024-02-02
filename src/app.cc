@@ -426,10 +426,14 @@ void App::drawNodeProperties(void)
                 menuName(visual->name, "visual");
                 menuOrigin(visual->origin);
                 menuGeometry(visual->geometry, link_node->visual_mesh, link_node->visual_model);
+                menuMaterial(visual->material_name);
+                ImGui::Separator();
+                if (ImGui::Button("Delete visual component")) {
+                    command_buffer_.add(std::make_shared<DeleteVisualCommand>(link_node, robot_));
+                }
             } else {
                 if (ImGui::Button("Create visual component")) {
-                    link_node->link.visual = urdf::Visual();
-                    // TODO: generate geometry and initialize properly
+                    command_buffer_.add(std::make_shared<CreateVisualCommand>(link_node, shader_));
                 }
             }
         }
@@ -442,25 +446,24 @@ void App::drawNodeProperties(void)
                         menuOrigin(col.origin);
                         menuGeometry(col.geometry, link_node->collision_mesh[i], link_node->collision_models[i]);
                         if (ImGui::Button("Delete collision component")) {
-                            link_node->DeleteCollision(i);
+                            command_buffer_.add(std::make_shared<DeleteCollisionCommand>(link_node, i));
                         }
                         ImGui::TreePop();
                     }
                 }
                 ImGui::Separator();
                 if (ImGui::Button("Add collision component")) {
-                    link_node->AddCollision();
+                    command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
                 }
             } else {
                 if (ImGui::Button("Create collision component")) {
-                    link_node->link.collision.clear();
-                    link_node->AddCollision();  // TODO: we might need to call forward kinematics here
+                    command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
                 }
             }
         }
         ImGui::Separator();
     } else if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
-        ImGui::Text("Joint name: %s", joint_node->joint.name.c_str());
+        ImGui::InputText("Name##joint", &joint_node->joint.name, ImGuiInputTextFlags_None);
 
         static const char* joint_types[] = {"revolute", "continuous", "prismatic", "fixed", "floating", "planar"};
         int choice = joint_node->joint.type;
@@ -514,6 +517,17 @@ void App::menuOrigin(std::optional<urdf::Origin>& origin)
     } else {
         if (ImGui::Button("Create origin")) {
             command_buffer_.add(std::make_shared<CreateOriginCommand>(origin));
+        }
+    }
+}
+
+void App::menuMaterial(std::optional<std::string>& material_name, const char *label)
+{
+    if (material_name) {
+        ImGui::InputText("Material name", &(*material_name));
+    } else {
+        if (ImGui::Button("Create material")) {
+            command_buffer_.add(std::make_shared<CreateNameCommand>(material_name));
         }
     }
 }

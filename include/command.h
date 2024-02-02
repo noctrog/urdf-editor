@@ -53,6 +53,7 @@ private:
     const std::string filename_;
     std::shared_ptr<urdf::Robot>& robot_;
     std::shared_ptr<urdf::Robot> old_robot_;
+    std::shared_ptr<urdf::Robot> future_robot_;
     const Shader& shader_;
 };
 
@@ -159,4 +160,48 @@ private:
     urdf::Geometry& target_;
     ::Mesh& mesh_;
     Model& model_;
+};
+
+class CreateVisualCommand : public Command {
+public:
+    CreateVisualCommand(urdf::LinkNodePtr& link,
+                        const Shader& shader_);
+    void execute() override;
+    void undo() override;
+private:
+    urdf::LinkNodePtr link_;
+    const Shader shader_;
+};
+
+class DeleteVisualCommand : public Command {
+public:
+    DeleteVisualCommand(urdf::LinkNodePtr& link,
+                        urdf::RobotPtr& robot);
+    void execute() override;
+    void undo() override;
+private:
+    urdf::LinkNodePtr link_;
+    Shader shader_;
+    urdf::Visual old_visual_;
+    const urdf::RobotPtr robot_;
+};
+
+class AddCollisionCommand : public Command {
+public:
+    AddCollisionCommand(urdf::LinkNodePtr& link);
+    void execute() override;
+    void undo() override;
+private:
+    urdf::LinkNodePtr link_;
+};
+
+class DeleteCollisionCommand : public Command {
+public:
+    DeleteCollisionCommand(urdf::LinkNodePtr& link, int i);
+    void execute() override;
+    void undo() override;
+private:
+    urdf::LinkNodePtr link_;
+    int i_;
+    urdf::Collision old_collision_;
 };

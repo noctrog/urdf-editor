@@ -218,6 +218,7 @@ public:
     void forward_kinematics(LinkNodePtr& link);
 
     void build_geometry(void);
+    void update_material(LinkNodePtr& link);
 
     void print_tree(void) const;
 
