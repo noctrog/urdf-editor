@@ -3,6 +3,8 @@
 #include <string>
 #include <robot.h>
 
+#include <import_mesh.h>
+
 class Command {
     public:
         virtual ~Command() = default;
@@ -150,7 +152,6 @@ public:
     ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry,
                           urdf::GeometryTypePtr new_geometry,
                           urdf::Geometry& target,
-                          ::Mesh& mesh,
                           Model& model);
     void execute() override;
     void undo() override;
@@ -158,18 +159,19 @@ private:
     urdf::GeometryTypePtr old_geometry_;
     urdf::GeometryTypePtr new_geometry_;
     urdf::Geometry& target_;
-    ::Mesh& mesh_;
     Model& model_;
 };
 
 class CreateVisualCommand : public Command {
 public:
     CreateVisualCommand(urdf::LinkNodePtr& link,
+                        const urdf::RobotPtr& robot,
                         const Shader& shader_);
     void execute() override;
     void undo() override;
 private:
     urdf::LinkNodePtr link_;
+    const urdf::RobotPtr robot_;
     const Shader shader_;
 };
 
@@ -204,4 +206,71 @@ private:
     urdf::LinkNodePtr link_;
     int i_;
     urdf::Collision old_collision_;
+};
+
+class UpdateGeometryBoxCommand : public Command {
+public:
+    UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& box,
+                             const Vector3& old_size,
+                             Model& model,
+                             const Shader& shader);
+    void execute() override;
+    void undo() override;
+private:
+    Vector3 new_size_;
+    Vector3 old_size_;
+    std::shared_ptr<urdf::Box> box_;
+    Model& model_;
+    const Shader& shader_;
+};
+
+class UpdateGeometryCylinderCommand : public Command {
+public:
+    UpdateGeometryCylinderCommand(std::shared_ptr<urdf::Cylinder>& cylinder,
+                                  const float old_radius,
+                                  const float old_height,
+                                  Model& model,
+                                  const Shader& shader);
+    void execute() override;
+    void undo() override;
+private:
+    float new_radius_;
+    float new_length_;
+    float old_radius_;
+    float old_length_;
+    std::shared_ptr<urdf::Cylinder> cylinder_;
+    Model& model_;
+    const Shader& shader_;
+};
+
+class UpdateGeometrySphereCommand : public Command {
+public:
+    UpdateGeometrySphereCommand(std::shared_ptr<urdf::Sphere>& sphere,
+                                const float old_radius,
+                                Model& model,
+                                const Shader& shader);
+    void execute() override;
+    void undo() override;
+private:
+    float new_radius_;
+    float old_radius_;
+    std::shared_ptr<urdf::Sphere> sphere_;
+    Model& model_;
+    const Shader& shader_;
+};
+
+class UpdateGeometryMeshCommand : public Command {
+public:
+    UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>& mesh,
+                              const std::string& new_filename,
+                              Model& model,
+                              const Shader& shader);
+    void execute() override;
+    void undo() override;
+private:
+    std::string new_filename_;
+    std::string old_filename_;
+    std::shared_ptr<urdf::Mesh> mesh_;
+    Model& model_;
+    const Shader& shader_;
 };

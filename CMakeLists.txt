@@ -37,8 +37,16 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/fmtlib/fmt.git
   GIT_TAG 10.2.1
 )
+# set(ASSIMP_BUILD_ASSIMP_TOOLS OFF)
+# set(ASSIMP_BUILD_TESTS OFF)
+# set(ASSIMP_INSTALL OFF)
+FetchContent_Declare(
+  assimp
+  GIT_REPOSITORY https://github.com/assimp/assimp.git
+  GIT_TAG v5.3.1
+)
 set(LOGURU_WITH_STREAMS TRUE)
-FetchContent_MakeAvailable(raylib imgui pugixml loguru nfd fmt)
+FetchContent_MakeAvailable(raylib imgui pugixml loguru nfd fmt assimp)
 
 add_library(imgui STATIC
     ${imgui_SOURCE_DIR}/imgui.cpp
@@ -61,6 +69,6 @@ add_executable(${PROJECT_NAME} ${SRC_FILES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE include)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE raylib imgui pugixml loguru nfd fmt)
+target_link_libraries(${PROJECT_NAME} PRIVATE raylib imgui pugixml loguru nfd fmt assimp)
 
 target_compile_options(${PROJECT_NAME} PUBLIC -Wall -Wfloat-conversion -pedantic)

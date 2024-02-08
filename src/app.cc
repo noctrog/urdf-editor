@@ -425,7 +425,7 @@ void App::drawNodeProperties(void)
             if (auto& visual = link_node->link.visual) {
                 menuName(visual->name, "visual");
                 menuOrigin(visual->origin);
-                menuGeometry(visual->geometry, link_node->visual_mesh, link_node->visual_model);
+                menuGeometry(visual->geometry, link_node->visual_model);
                 menuMaterial(visual->material_name);
                 ImGui::Separator();
                 if (ImGui::Button("Delete visual component")) {
@@ -433,7 +433,7 @@ void App::drawNodeProperties(void)
                 }
             } else {
                 if (ImGui::Button("Create visual component")) {
-                    command_buffer_.add(std::make_shared<CreateVisualCommand>(link_node, shader_));
+                    command_buffer_.add(std::make_shared<CreateVisualCommand>(link_node, robot_, shader_));
                 }
             }
         }
@@ -444,7 +444,7 @@ void App::drawNodeProperties(void)
                     if (ImGui::TreeNode(fmt::format("Collision {}", i).c_str())) { // name origin geometry
                         menuName(col.name, "collision");
                         menuOrigin(col.origin);
-                        menuGeometry(col.geometry, link_node->collision_mesh[i], link_node->collision_models[i]);
+                        menuGeometry(col.geometry, link_node->collision_models[i]);
                         if (ImGui::Button("Delete collision component")) {
                             command_buffer_.add(std::make_shared<DeleteCollisionCommand>(link_node, i));
                         }
@@ -483,20 +483,24 @@ void App::drawNodeProperties(void)
     }
 }
 
-void App::originGui(urdf::Origin& origin)
+bool App::originGui(urdf::Origin& origin)
 {
+    bool change = false;
     if (ImGui::TreeNode("Origin")) {
         float xyz[3] = {origin.xyz.x, origin.xyz.y, origin.xyz.z};
         float rpy[3] = {origin.rpy.x, origin.rpy.y, origin.rpy.z};
 
-        ImGui::InputFloat3("Position", xyz);
-        ImGui::InputFloat3("Orientation", rpy);
+        // TODO: implement as commands (commands will update the robot state)
+        change |= ImGui::InputFloat3("Position", xyz);
+        change |= ImGui::InputFloat3("Orientation", rpy);
 
         origin.xyz.x = xyz[0]; origin.xyz.y = xyz[1]; origin.xyz.z = xyz[2];
         origin.rpy.x = rpy[0]; origin.rpy.y = rpy[1]; origin.rpy.z = rpy[2];
 
         ImGui::TreePop();
     }
+
+    return change;
 }
 
 void App::menuName(std::optional<std::string>& name, const char *label)
@@ -513,7 +517,9 @@ void App::menuName(std::optional<std::string>& name, const char *label)
 void App::menuOrigin(std::optional<urdf::Origin>& origin)
 {
     if (origin) {
-        originGui(*origin);
+        if (originGui(*origin)) {
+            robot_->forward_kinematics();
+        }
     } else {
         if (ImGui::Button("Create origin")) {
             command_buffer_.add(std::make_shared<CreateOriginCommand>(origin));
@@ -587,7 +593,7 @@ void App::menuLimit(std::optional<urdf::Limit>& limit)
     }
 }
 
-void App::menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model)
+void App::menuGeometry(urdf::Geometry& geometry, Model& model)
 {
     if (ImGui::TreeNode("Geometry")) {
         if (urdf::GeometryTypePtr& type = geometry.type) {
@@ -608,19 +614,19 @@ void App::menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model)
                 switch (choice) {
                     case 0:
                         command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
-                            type, std::make_shared<urdf::Box>(), geometry, mesh, model));
+                            type, std::make_shared<urdf::Box>(), geometry, model));
                         break;
                     case 1:
                         command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
-                            type, std::make_shared<urdf::Cylinder>(), geometry, mesh, model));
+                            type, std::make_shared<urdf::Cylinder>(), geometry, model));
                         break;
                     case 2:
                         command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
-                            type, std::make_shared<urdf::Sphere>(), geometry, mesh, model));
+                            type, std::make_shared<urdf::Sphere>(), geometry, model));
                         break;
                     case 3:
                         command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
-                            type, std::make_shared<urdf::Mesh>(""), geometry, mesh, model));
+                            type, std::make_shared<urdf::Mesh>(""), geometry, model));
                         break;
                     default:
                         LOG_F(ERROR, "Invalid geometry type");
@@ -630,40 +636,56 @@ void App::menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model)
             switch (choice) {
                 case 0:
                     if (auto box = std::dynamic_pointer_cast<urdf::Box>(type)) {
-                        if (ImGui::InputFloat3("Size", &box->size.x, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
-                            // TODO update geometry
-                            mesh = type->generateGeometry();
+                        static Vector3 old_size = box->size;
+                        if (ImGui::InputFloat3("Size", &box->size.x, "%.3f")) {
+                            command_buffer_.add(std::make_shared<UpdateGeometryBoxCommand>(box, old_size, model, shader_));
                         }
                     }
                     break;
                 case 1:
                     if (auto cylinder = std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
-                        bool update = false;
-                        if (ImGui::InputFloat("Radius", &cylinder->radius,
-                            0.01f, 0.1f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
-                            update = true;
-                        }
-                        if (ImGui::InputFloat("Length", &cylinder->length,
-                            0.01f, 0.1f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
-                            update = true;
-                        }
-                        if (update) {
-                            // TODO update geometry
-                            mesh = type->generateGeometry();
+                        float old_radius = cylinder->radius;
+                        float old_length = cylinder->length;
+                        ImGui::InputFloat("Radius", &cylinder->radius, 0.01f, 0.1f, "%.3f");
+                        ImGui::InputFloat("Length", &cylinder->length, 0.01f, 0.1f, "%.3f");
+
+                        if (old_radius != cylinder->radius or old_length != cylinder->length) {
+                            command_buffer_.add(std::make_shared<UpdateGeometryCylinderCommand>(
+                                cylinder, cylinder->radius, cylinder->length, model, shader_));
                         }
                     }
                     break;
                 case 2:
                     if (auto sphere = std::dynamic_pointer_cast<urdf::Sphere>(type)) {
-                        if (ImGui::InputFloat("Radius", &sphere->radius,
-                            0.01f, 0.1f, "%.3f", ImGuiInputTextFlags_EnterReturnsTrue)) {
-                            // TODO update geometry
-                        }
+                        float old_radius = sphere->radius;
+                        ImGui::InputFloat("Radius", &sphere->radius, 0.01f, 0.1f, "%.3f");
+                        if (old_radius != sphere->radius)
+                        command_buffer_.add(std::make_shared<UpdateGeometrySphereCommand>(
+                            sphere, sphere->radius, model, shader_));
                     }
                     break;
                 case 3:
-                    if (auto mesh = std::dynamic_pointer_cast<urdf::Mesh>(type)) {
-                        if (ImGui::InputText("Filename", &mesh->filename, ImGuiInputTextFlags_EnterReturnsTrue)) {
+                    if (auto gmesh = std::dynamic_pointer_cast<urdf::Mesh>(type)) {
+                        ImGui::Text("Filename: %s", gmesh->filename.c_str());
+                        ImGui::SameLine();
+                        if (ImGui::Button("...")) {
+                            NFD::UniquePath outPath;
+
+                            // prepare filters for the dialog
+                            nfdfilteritem_t filterItem[2] = {{"Mesh filename", "dae,stl"}};
+
+                            // show the dialog
+                            nfdresult_t result = NFD::OpenDialog(outPath, filterItem, 1);
+                            if (result == NFD_OKAY) {
+                                command_buffer_.add(std::make_shared<UpdateGeometryMeshCommand>(
+                                    gmesh, outPath.get(), model, shader_));
+                            } else if (result == NFD_CANCEL) {
+                                LOG_F(INFO, "User pressed cancel.");
+                            } else {
+                                LOG_F(WARNING, "Warn: %s", NFD::GetError());
+                            }
+                        }
+                        if (ImGui::InputText("Filename", &gmesh->filename, ImGuiInputTextFlags_EnterReturnsTrue)) {
                             // TODO try to load mesh and update
                         }
                     }
@@ -674,8 +696,7 @@ void App::menuGeometry(urdf::Geometry& geometry, ::Mesh& mesh, Model& model)
         } else {
             if (ImGui::Button("Create geometry")) {
                 geometry.type = std::make_shared<urdf::Box>();
-                mesh = geometry.type->generateGeometry();
-                model.meshes[0] = mesh;
+                model = geometry.type->generateGeometry();
             }
         }
         ImGui::TreePop();

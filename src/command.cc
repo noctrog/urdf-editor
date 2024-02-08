@@ -295,9 +295,8 @@ void CreateLimitCommand::undo()
 ChangeGeometryCommand::ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry,
                                              urdf::GeometryTypePtr new_geometry,
                                              urdf::Geometry& target,
-                                             ::Mesh& mesh,
                                              Model& model)
-    : old_geometry_(old_geometry), new_geometry_(new_geometry), target_(target), mesh_(mesh), model_(model)
+    : old_geometry_(old_geometry), new_geometry_(new_geometry), target_(target), model_(model)
 {
 
 }
@@ -306,22 +305,25 @@ void ChangeGeometryCommand::execute()
 {
     target_.type = new_geometry_;
 
-    UnloadMesh(mesh_);
-    mesh_ = target_.type->generateGeometry();
-    model_.meshes[0] = mesh_;
+    UnloadModel(model_);
+    model_ = target_.type->generateGeometry();
+    // mesh_ = target_.type->generateGeometry();
+    // model_.meshes[0] = mesh_; // TODO: might need to update material
 }
 
 void ChangeGeometryCommand::undo()
 {
     target_.type = old_geometry_;
 
-    UnloadMesh(mesh_);
-    mesh_ = target_.type->generateGeometry();
-    model_.meshes[0] = mesh_;
+    UnloadModel(model_);
+    model_ = target_.type->generateGeometry();
+    // model_.meshes[0] = mesh_;
 }
 
-CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link, const Shader& shader)
-    : link_(link), shader_(shader)
+CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link,
+                                         const urdf::RobotPtr& robot,
+                                         const Shader& shader)
+    : link_(link), robot_(robot), shader_(shader)
 {
 
 }
@@ -332,9 +334,9 @@ void CreateVisualCommand::execute()
         std::nullopt, std::nullopt,
         urdf::Geometry{std::make_shared<urdf::Box>()},
         std::nullopt};
-    link_->visual_mesh = link_->link.visual->geometry.type->generateGeometry();
-    link_->visual_model = LoadModelFromMesh(link_->visual_mesh);
+    link_->visual_model = link_->link.visual->geometry.type->generateGeometry();
     link_->visual_model.materials[0].shader = shader_;
+    robot_->forward_kinematics();
 }
 
 void CreateVisualCommand::undo()
@@ -362,9 +364,10 @@ void DeleteVisualCommand::undo()
 {
     link_->link.visual = old_visual_;
     old_visual_ = urdf::Visual();
-    link_->visual_mesh = link_->link.visual->geometry.type->generateGeometry();
-    link_->visual_model = LoadModelFromMesh(link_->visual_mesh);
+    UnloadModel(link_->visual_model);
+    link_->visual_model = link_->link.visual->geometry.type->generateGeometry();
     link_->visual_model.materials[0].shader = shader_;
+    robot_->forward_kinematics();
     robot_->update_material(link_);
 }
 
@@ -399,8 +402,159 @@ void DeleteCollisionCommand::execute()
 void DeleteCollisionCommand::undo()
 {
     link_->link.collision.insert(link_->link.collision.begin() + i_, old_collision_);
-    link_->collision_mesh.insert(link_->collision_mesh.begin() + i_,
-                                 old_collision_.geometry.type->generateGeometry());
     link_->collision_models.insert(link_->collision_models.begin() + i_,
-                                   LoadModelFromMesh(link_->collision_mesh[i_]));
+                                   old_collision_.geometry.type->generateGeometry());
 }
+
+UpdateGeometryBoxCommand::UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& box,
+                                                   const Vector3& old_size,
+                                                   Model& model,
+                                                   const Shader& shader)
+    : new_size_(box->size), old_size_(old_size), box_(box), model_(model), shader_(shader)
+{
+
+}
+
+void UpdateGeometryBoxCommand::execute()
+{
+    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    const Matrix T = model_.transform;
+    box_->size = new_size_;
+
+    UnloadModel(model_);
+    model_ = box_->generateGeometry();
+
+    model_.materials[0].shader = shader_;
+    model_.transform = T;
+    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+}
+
+void UpdateGeometryBoxCommand::undo()
+{
+    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    const Matrix T = model_.transform;
+    box_->size = old_size_;
+
+    UnloadModel(model_);
+    model_ = box_->generateGeometry();
+
+    model_.materials[0].shader = shader_;
+    model_.transform = T;
+    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+}
+
+UpdateGeometryCylinderCommand::UpdateGeometryCylinderCommand(std::shared_ptr<urdf::Cylinder>& cylinder,
+                                                             const float old_radius,
+                                                             const float old_height,
+                                                             Model& model,
+                                                             const Shader& shader)
+    : new_radius_(cylinder->radius), new_length_(cylinder->length), old_radius_(old_radius), old_length_(old_height),
+      cylinder_(cylinder), model_(model), shader_(shader)
+{
+
+}
+
+void UpdateGeometryCylinderCommand::execute()
+{
+    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    const Matrix T = model_.transform;
+    cylinder_->radius = new_radius_;
+    cylinder_->length = new_length_;
+
+    UnloadModel(model_);
+    model_ = cylinder_->generateGeometry();
+
+    model_.materials[0].shader = shader_;
+    model_.transform = T;
+    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+}
+
+void UpdateGeometryCylinderCommand::undo()
+{
+    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    const Matrix T = model_.transform;
+    cylinder_->radius = old_radius_;
+    cylinder_->length = old_length_;
+
+    UnloadModel(model_);
+    model_ = cylinder_->generateGeometry();
+
+    model_.materials[0].shader = shader_;
+    model_.transform = T;
+    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+}
+
+UpdateGeometrySphereCommand::UpdateGeometrySphereCommand(std::shared_ptr<urdf::Sphere>& sphere,
+                                                         const float old_radius,
+                                                         Model& model,
+                                                         const Shader& shader)
+    : new_radius_(sphere->radius), old_radius_(old_radius), sphere_(sphere), model_(model), shader_(shader)
+{
+
+}
+
+void UpdateGeometrySphereCommand::execute()
+{
+    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    const Matrix T = model_.transform;
+    sphere_->radius = new_radius_;
+
+    UnloadModel(model_);
+    model_ = sphere_->generateGeometry();
+
+    model_.materials[0].shader = shader_;
+    model_.transform = T;
+    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+}
+
+void UpdateGeometrySphereCommand::undo()
+{
+    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    const Matrix T = model_.transform;
+
+    UnloadModel(model_);
+    model_ = sphere_->generateGeometry();
+
+    model_.materials[0].shader = shader_;
+    model_.transform = T;
+    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+}
+
+UpdateGeometryMeshCommand::UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>& mesh,
+                                                     const std::string& new_filename,
+                                                     Model& model,
+                                                     const Shader& shader)
+    : new_filename_(new_filename), mesh_(mesh), model_(model), shader_(shader)
+{
+
+}
+
+void UpdateGeometryMeshCommand::execute()
+{
+    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    const Matrix T = model_.transform;
+    old_filename_ = mesh_->filename;
+    mesh_->filename = new_filename_;
+
+    UnloadModel(model_);
+    model_ = mesh_->generateGeometry();
+
+    model_.materials[0].shader = shader_;
+    model_.transform = T;
+    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+}
+
+void UpdateGeometryMeshCommand::undo()
+{
+    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    const Matrix T = model_.transform;
+    mesh_->filename = old_filename_;
+
+    UnloadModel(model_);
+    model_ = mesh_->generateGeometry();
+
+    model_.materials[0].shader = shader_;
+    model_.transform = T;
+    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+}
+

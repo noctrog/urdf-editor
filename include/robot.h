@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <functional>
 #include <vector>
 #include <memory>
 #include <map>
@@ -20,7 +21,7 @@ struct Origin {
 };
 
 struct GeometryType {
-    virtual ::Mesh generateGeometry() = 0;
+    virtual Model generateGeometry() = 0;
 };
 
 struct Box : public GeometryType {
@@ -31,7 +32,7 @@ struct Box : public GeometryType {
 
     Vector3 size;
 
-    virtual ::Mesh generateGeometry() override;
+    virtual Model generateGeometry() override;
 };
 
 struct Cylinder : public GeometryType {
@@ -43,7 +44,7 @@ struct Cylinder : public GeometryType {
     float radius;
     float length;
 
-    virtual ::Mesh generateGeometry() override;
+    virtual Model generateGeometry() override;
 };
 
 struct Sphere : public GeometryType {
@@ -54,7 +55,7 @@ struct Sphere : public GeometryType {
 
     float radius;
 
-    virtual ::Mesh generateGeometry() override;
+    virtual Model generateGeometry() override;
 };
 
 struct Mesh : public GeometryType {
@@ -63,7 +64,7 @@ struct Mesh : public GeometryType {
 
     std::string filename;
 
-    virtual ::Mesh generateGeometry() override;
+    virtual Model generateGeometry() override;
 };
 
 // TODO: implement mesh geometry
@@ -190,9 +191,6 @@ struct LinkNode : TreeNode
     JointNodePtr parent;
     std::vector<JointNodePtr> children;
 
-    ::Mesh visual_mesh;
-    std::vector<::Mesh> collision_mesh;
-
     Model visual_model;
     std::vector<Model> collision_models;
 
@@ -218,7 +216,7 @@ public:
     void forward_kinematics(LinkNodePtr& link);
 
     void build_geometry(void);
-    void update_material(LinkNodePtr& link);
+    void update_material(const LinkNodePtr& link);
 
     void print_tree(void) const;
 
@@ -229,6 +227,9 @@ public:
     LinkNodePtr get_root(void) const;
 
     LinkNodePtr get_link(const Ray& ray);
+
+    void for_every_link(const std::function<void(const LinkNodePtr&)>& func) const;
+    void for_every_joint(const std::function<void(const JointNodePtr&)>& func) const;
 
     const std::map<std::string, Material>& get_materials(void) const;
 

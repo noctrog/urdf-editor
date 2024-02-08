@@ -13,77 +13,13 @@
 
 #include <raymath.h>
 
+#include <import_mesh.h>
+
 namespace urdf {
 
 static inline Matrix MatMul(const Matrix& left, const Matrix& right)
 {
     return MatrixMultiply(right, left);
-}
-
-::Mesh GenMeshCenteredCylinder(float radius, float height, int slices)
-{
-    ::Mesh mesh = { 0 };
-
-    if (slices >= 3)
-    {
-        // Create a cylinder along Y-axis
-        par_shapes_mesh* cylinder = par_shapes_create_cylinder(slices, 8);
-        par_shapes_scale(cylinder, radius, radius, height);
-
-        // Translate the cylinder to center it at the origin
-        par_shapes_translate(cylinder, 0, 0, -height / 2.0f);
-
-        // Create top cap
-        float center_top[] = { 0, 0, height / 2 };
-        float normal_top[] = { 0, 0, 1 };
-        par_shapes_mesh* capTop = par_shapes_create_disk(radius, slices, center_top, normal_top);
-        capTop->tcoords = PAR_MALLOC(float, 2 * capTop->npoints);
-        for (int i = 0; i < 2 * capTop->npoints; i++) capTop->tcoords[i] = 0.0f;
-
-        // Create bottom cap
-        float center_bot[] = { 0, 0, 0 };
-        float normal_bot[] = { 0, 0, 1 };
-        par_shapes_mesh* capBottom = par_shapes_create_disk(radius, slices, center_bot, normal_bot);
-        float x_vec[] = {1, 0, 0};
-        par_shapes_rotate(capBottom, -PI, x_vec);
-        par_shapes_translate(capBottom, 0, 0, -height / 2.0f);
-        capBottom->tcoords = PAR_MALLOC(float, 2 * capBottom->npoints);
-        for (int i = 0; i < 2 * capBottom->npoints; i++) capBottom->tcoords[i] = 0.95f;
-
-        // Merge cylinder and caps
-        par_shapes_merge_and_free(cylinder, capTop);
-        par_shapes_merge_and_free(cylinder, capBottom);
-
-
-        mesh.vertices = (float *)RL_MALLOC(cylinder->ntriangles*3*3*sizeof(float));
-        mesh.texcoords = (float *)RL_MALLOC(cylinder->ntriangles*3*2*sizeof(float));
-        mesh.normals = (float *)RL_MALLOC(cylinder->ntriangles*3*3*sizeof(float));
-
-        mesh.vertexCount = cylinder->ntriangles*3;
-        mesh.triangleCount = cylinder->ntriangles;
-
-        for (int k = 0; k < mesh.vertexCount; k++)
-        {
-            mesh.vertices[k*3] = cylinder->points[cylinder->triangles[k]*3];
-            mesh.vertices[k*3 + 1] = cylinder->points[cylinder->triangles[k]*3 + 1];
-            mesh.vertices[k*3 + 2] = cylinder->points[cylinder->triangles[k]*3 + 2];
-
-            mesh.normals[k*3] = cylinder->normals[cylinder->triangles[k]*3];
-            mesh.normals[k*3 + 1] = cylinder->normals[cylinder->triangles[k]*3 + 1];
-            mesh.normals[k*3 + 2] = cylinder->normals[cylinder->triangles[k]*3 + 2];
-
-            mesh.texcoords[k*2] = cylinder->tcoords[cylinder->triangles[k]*2];
-            mesh.texcoords[k*2 + 1] = cylinder->tcoords[cylinder->triangles[k]*2 + 1];
-        }
-
-        par_shapes_free_mesh(cylinder);
-
-        // Upload vertex data to GPU (static mesh)
-        UploadMesh(&mesh, false);
-    }
-    else LOG_F(WARNING, "MESH: Failed to generate mesh: cylinder");
-
-    return mesh;
 }
 
 static void store_float(const char *s, float& f) {
@@ -146,9 +82,10 @@ Box::Box(const Vector3& size)
 
 }
 
-::Mesh Box::generateGeometry()
+Model Box::generateGeometry()
 {
-    return GenMeshCube(size.x, size.y, size.z);
+    ::Mesh mesh = GenMeshCube(size.x, size.y, size.z);
+    return LoadModelFromMesh(mesh);
 }
 
 Cylinder::Cylinder()
@@ -163,12 +100,10 @@ Cylinder::Cylinder(const char *_radius, const char *_length)
     if (_length) store_float(_length, length);
 }
 
-::Mesh Cylinder::generateGeometry()
+Model Cylinder::generateGeometry()
 {
     ::Mesh mesh = GenMeshCenteredCylinder(radius, length, 32);
-
-
-    return mesh;
+    return LoadModelFromMesh(mesh);
 }
 
 Sphere::Sphere()
@@ -187,20 +122,20 @@ Sphere::Sphere(float _radius)
 
 }
 
-::Mesh Sphere::generateGeometry()
+Model Sphere::generateGeometry()
 {
-    return GenMeshSphere(radius, 32, 32);
+    ::Mesh mesh = GenMeshSphere(radius, 32, 32);
+    return LoadModelFromMesh(mesh);
 }
 
 Mesh::Mesh(const char *filename)
     : filename(filename)
 {
-
 }
 
-::Mesh Mesh::generateGeometry()
+Model Mesh::generateGeometry()
 {
-    return GenMeshSphere(1.0, 32, 32); // TODO import geometry
+    return LoadModelFromCollada(filename);
 }
 
 Inertia::Inertia(float ixx, float iyy, float izz, float ixy, float ixz, float iyz)
@@ -288,20 +223,18 @@ void LinkNode::AddCollision()
 {
     link.collision.push_back(urdf::Collision());
     link.collision.back().geometry.type = std::make_shared<urdf::Box>();
-    collision_mesh.emplace_back(link.collision.back().geometry.type->generateGeometry());
-    collision_models.push_back(LoadModelFromMesh(collision_mesh.back()));
+    collision_models.push_back(link.collision.back().geometry.type->generateGeometry());
 }
 
 void LinkNode::DeleteCollision(int i)
 {
     link.collision.erase(link.collision.begin() + i);
-    UnloadMesh(collision_mesh[i]);
-    collision_mesh.erase(collision_mesh.begin() + i);
+    UnloadModel(collision_models[i]);
     collision_models.erase(collision_models.begin() + i);
 }
 
 JointNode::JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNodePtr& child)
-    : joint(joint), parent(parent), child(child)
+    : joint(joint), parent(parent), child(child), q{}
 {
 
 }
@@ -796,21 +729,14 @@ Robot::Robot(const LinkNodePtr& root,
 
 Robot::~Robot()
 {
-    std::deque<LinkNodePtr> deq {root_};
-
-    while (not deq.empty()) {
-        const auto& link = deq.front();
-        deq.pop_front();
-
+    auto func = [&](const LinkNodePtr& link){
         UnloadModel(link->visual_model);
         for (const Model& mod : link->collision_models) {
             UnloadModel(mod);
         }
+    };
 
-        for (const auto& joint : link->children) {
-            deq.push_back(joint->child);
-        }
-    }
+    for_every_link(func);
 }
 
 void Robot::forward_kinematics(void)
@@ -865,63 +791,50 @@ Matrix Robot::origin_to_matrix(std::optional<Origin>& origin)
 
 void Robot::build_geometry()
 {
-    std::deque<LinkNodePtr> deq {root_};
-
-    while (not deq.empty()) {
-        LinkNodePtr link = deq.front();
-        deq.pop_front();
-
+    auto func = [&](const LinkNodePtr& link){
         // Visual model
         if (link->link.visual) {
-            link->visual_mesh = link->link.visual->geometry.type->generateGeometry();
-            link->visual_model = LoadModelFromMesh(link->visual_mesh);
+            link->visual_model = link->link.visual->geometry.type->generateGeometry();
             link->visual_model.materials[0].shader = visual_shader_;
             update_material(link);
         }
 
         // Collision model
         for (const Collision& col : link->link.collision) {
-            link->collision_mesh.push_back(col.geometry.type->generateGeometry());
-            link->collision_models.push_back(LoadModelFromMesh(link->collision_mesh.back()));
+            // link->collision_mesh.push_back(col.geometry.type->generateGeometry());
+            link->collision_models.push_back(col.geometry.type->generateGeometry());
         }
+    };
 
-        for (const auto& joint : link->children) {
-            deq.push_back(joint->child);
-        }
-    }
+    for_every_link(func);
 }
 
-void Robot::update_material(LinkNodePtr& link)
+void Robot::update_material(const LinkNodePtr& link)
 {
-    auto set_material_diffuse_color = [](const LinkNodePtr& link, const Vector4& color){
-        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.r = static_cast<char>(color.x * 255.0f);
-        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.g = static_cast<char>(color.y * 255.0f);
-        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.b = static_cast<char>(color.z * 255.0f);
-        link->visual_model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.a = static_cast<char>(color.w * 255.0f);
+    auto set_material_diffuse_color = [](const Model& model, const Vector4& color){
+        model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.r = static_cast<char>(color.x * 255.0f);
+        model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.g = static_cast<char>(color.y * 255.0f);
+        model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.b = static_cast<char>(color.z * 255.0f);
+        model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.a = static_cast<char>(color.w * 255.0f);
     };
 
     if (link->link.visual->material_name) {
         const Material& mat = materials_[*link->link.visual->material_name];
         if (mat.rgba) {
-            set_material_diffuse_color(link, *mat.rgba);
+            set_material_diffuse_color(link->visual_model, *mat.rgba);
         } else {
-            set_material_diffuse_color(link, Vector4{127, 127, 127, 255});
+            set_material_diffuse_color(link->visual_model, Vector4{127, 127, 127, 255});
             LOG_F(INFO, "Link: %s. RGBA not found, using default color. Texture is not implemented yet.", link->link.name.c_str());
         }
     } else {
-        set_material_diffuse_color(link, Vector4{127, 127, 127, 255});
+        set_material_diffuse_color(link->visual_model, Vector4{127, 127, 127, 255});
         LOG_F(INFO, "Link: %s. No material name specified. Using default color", link->link.name.c_str());
     }
 }
 
 void Robot::draw(const LinkNodePtr& highlighted) const
 {
-    std::deque<LinkNodePtr> deq {root_};
-
-    while (not deq.empty()) {
-        const LinkNodePtr& link = deq.front();
-        deq.pop_front();
-
+    auto func = [&](const LinkNodePtr& link){
         if (link->link.visual) {
             if (highlighted.get() == link.get()) {
                 DrawModel(link->visual_model, Vector3Zero(), 1.0, RED);
@@ -929,56 +842,36 @@ void Robot::draw(const LinkNodePtr& highlighted) const
                 DrawModel(link->visual_model, Vector3Zero(), 1.0, WHITE);
             }
         }
-
         for (const Model& model : link->collision_models) {
             DrawModelWires(model, Vector3Zero(), 1.0, LIGHTGRAY);
         }
+    };
 
-        for (const auto& joint : link->children) {
-            deq.push_back(joint->child);
-        }
-    }
+    for_every_link(func);
 }
 
 void Robot::set_shader(const Shader& sh)
 {
     visual_shader_ = sh;
 
-    std::deque<LinkNodePtr> deq {root_};
-
-    while (not deq.empty()) {
-        const auto& current_link = deq.front();
-        deq.pop_front();
-
-        if (current_link->visual_model.materialCount > 0) {
-            if (::Material *mat = current_link->visual_model.materials) {
+    auto func = [&](const LinkNodePtr& link){
+        if (link->visual_model.materialCount > 0) {
+            if (::Material *mat = link->visual_model.materials) {
                 mat[0].shader = visual_shader_;
             }
         } else {
-            LOG_F(WARNING, "Link %s visual model does not have materials", current_link->link.name.c_str());
-            LOG_F(WARNING, "Link %s has %d meshes", current_link->link.name.c_str(), current_link->visual_model.meshCount);
+            LOG_F(WARNING, "Link %s visual model does not have materials", link->link.name.c_str());
+            LOG_F(WARNING, "Link %s has %d meshes", link->link.name.c_str(), link->visual_model.meshCount);
         }
+    };
 
-        for (const auto& joint : current_link->children) {
-            deq.push_back(joint->child);
-        }
-    }
+    for_every_link(func);
 }
 
 void Robot::print_tree() const
 {
-    std::deque<LinkNodePtr> deq {root_};
-
-    while (not deq.empty()) {
-        const auto& current_link = deq.front();
-        deq.pop_front();
-
-        LOG_F(INFO, "%s", current_link->link.name.c_str());
-
-        for (const auto& joint : current_link->children) {
-            deq.push_back(joint->child);
-        }
-    }
+    auto func = [](const LinkNodePtr& link){ LOG_F(INFO, "%s", link->link.name.c_str()); };
+    for_every_link(func);
 }
 
 LinkNodePtr Robot::get_root(void) const
@@ -989,6 +882,37 @@ LinkNodePtr Robot::get_root(void) const
 const std::map<std::string, Material>& Robot::get_materials(void) const
 {
     return materials_;
+}
+
+void Robot::for_every_link(const std::function<void (const LinkNodePtr&)>& func) const
+{
+    std::deque<LinkNodePtr> deq {root_};
+
+    while (not deq.empty()) {
+        const auto& current_link = deq.front();
+        deq.pop_front();
+
+        func(current_link);
+
+        for (const auto& joint : current_link->children) {
+            deq.push_back(joint->child);
+        }
+    }
+}
+
+void Robot::for_every_joint(const std::function<void(const JointNodePtr&)>& func) const
+{
+    std::deque<LinkNodePtr> deq {root_};
+
+    while (not deq.empty()) {
+        const auto& current_link = deq.front();
+        deq.pop_front();
+
+        for (const auto& joint : current_link->children) {
+            func(joint);
+            deq.push_back(joint->child);
+        }
+    }
 }
 
 
