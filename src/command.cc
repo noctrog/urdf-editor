@@ -244,6 +244,27 @@ void CreateOriginCommand::undo()
     target_ = std::nullopt;
 }
 
+UpdateOriginCommand::UpdateOriginCommand(urdf::Origin& old_origin,
+                                         urdf::Origin& new_origin,
+                                         urdf::Origin& target,
+                                         urdf::RobotPtr& robot)
+    : old_origin_(old_origin), new_origin_(new_origin), target_(target), robot_(robot)
+{
+
+}
+
+void UpdateOriginCommand::execute()
+{
+    target_ = new_origin_;
+    robot_->forward_kinematics();
+}
+
+void UpdateOriginCommand::undo()
+{
+    target_ = old_origin_;
+    robot_->forward_kinematics();
+}
+
 CreateAxisCommand::CreateAxisCommand(std::optional<urdf::Axis>& target)
     : target_(target)
 {

@@ -483,24 +483,21 @@ void App::drawNodeProperties(void)
     }
 }
 
-bool App::originGui(urdf::Origin& origin)
+void App::originGui(urdf::Origin& origin)
 {
-    bool change = false;
+    urdf::Origin old_origin = origin;
+
     if (ImGui::TreeNode("Origin")) {
-        float xyz[3] = {origin.xyz.x, origin.xyz.y, origin.xyz.z};
-        float rpy[3] = {origin.rpy.x, origin.rpy.y, origin.rpy.z};
+        if (ImGui::InputFloat3("Position", &origin.xyz.x)) {
+            command_buffer_.add(std::make_shared<UpdateOriginCommand>(old_origin, origin, origin, robot_));
+        }
 
-        // TODO: implement as commands (commands will update the robot state)
-        change |= ImGui::InputFloat3("Position", xyz);
-        change |= ImGui::InputFloat3("Orientation", rpy);
-
-        origin.xyz.x = xyz[0]; origin.xyz.y = xyz[1]; origin.xyz.z = xyz[2];
-        origin.rpy.x = rpy[0]; origin.rpy.y = rpy[1]; origin.rpy.z = rpy[2];
+        if (ImGui::InputFloat3("Orientation", &origin.rpy.x)) {
+            command_buffer_.add(std::make_shared<UpdateOriginCommand>(old_origin, origin, origin, robot_));
+        }
 
         ImGui::TreePop();
     }
-
-    return change;
 }
 
 void App::menuName(std::optional<std::string>& name, const char *label)
@@ -517,9 +514,7 @@ void App::menuName(std::optional<std::string>& name, const char *label)
 void App::menuOrigin(std::optional<urdf::Origin>& origin)
 {
     if (origin) {
-        if (originGui(*origin)) {
-            robot_->forward_kinematics();
-        }
+        originGui(*origin);
     } else {
         if (ImGui::Button("Create origin")) {
             command_buffer_.add(std::make_shared<CreateOriginCommand>(origin));

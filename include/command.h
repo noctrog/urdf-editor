@@ -120,6 +120,21 @@ private:
     std::optional<urdf::Origin>& target_;
 };
 
+class UpdateOriginCommand : public Command {
+public:
+    UpdateOriginCommand(urdf::Origin& old_origin,
+                        urdf::Origin& new_origin,
+                        urdf::Origin& target,
+                        urdf::RobotPtr& robot);
+    void execute() override;
+    void undo() override;
+private:
+    urdf::Origin old_origin_;
+    urdf::Origin new_origin_;
+    urdf::Origin& target_;
+    const urdf::RobotPtr robot_;
+};
+
 class CreateAxisCommand : public Command {
 public:
     CreateAxisCommand(std::optional<urdf::Axis>& target);
