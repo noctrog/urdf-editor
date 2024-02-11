@@ -27,6 +27,7 @@ private:
     void drawRobotTree();
     void drawNodeProperties();
     void drawSideMenu();
+    void drawViewport();
 
     void originGui(urdf::Origin& origin);
 
@@ -47,6 +48,7 @@ private:
     NFD::Guard nfdguard_;
 
     bool bOrbiting_; // TODO
+    bool bHoverViewport_;
     bool bWindowShouldClose_;
     int menubar_height_;
 

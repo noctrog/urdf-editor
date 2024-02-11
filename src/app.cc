@@ -122,7 +122,7 @@ void App::update()
     }
 
     // Update
-    if (bOrbiting_) {
+    if (bOrbiting_ and bHoverViewport_) {
         UpdateCamera(&camera_, CAMERA_THIRD_PERSON);
     }
 
@@ -153,6 +153,7 @@ void App::draw_menu()
 
     drawToolbar();
     drawSideMenu();
+    drawViewport();
 
     rlImGuiEnd();
     EndDrawing();
@@ -383,13 +384,18 @@ void App::drawSideMenu()
     drawNodeProperties();
 
     ImGui::End();
+}
 
+void App::drawViewport()
+{
     ImGui::SetNextWindowPos(ImVec2(350, ImGui::GetFrameHeight()), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x - 350,
                                     ImGui::GetIO().DisplaySize.y - ImGui::GetFrameHeight()),
                              ImGuiCond_Always);
+
     ImGui::Begin("View", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
     rlImGuiImageRenderTextureFit(&view_texture_, true);
+    bHoverViewport_ = ImGui::IsItemHovered();
     ImGui::End();
 }
 
