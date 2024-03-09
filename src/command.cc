@@ -341,6 +341,22 @@ void ChangeGeometryCommand::undo()
     // model_.meshes[0] = mesh_;
 }
 
+CreateInertialCommand::CreateInertialCommand(urdf::LinkNodePtr& link)
+    : link_(link)
+{
+
+}
+
+void CreateInertialCommand::execute()
+{
+    link_->link.inertial = urdf::Inertial();
+}
+
+void CreateInertialCommand::undo()
+{
+    link_->link.inertial = std::nullopt;
+}
+
 CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link,
                                          const urdf::RobotPtr& robot,
                                          const Shader& shader)

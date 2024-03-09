@@ -177,6 +177,16 @@ private:
     Model& model_;
 };
 
+class CreateInertialCommand : public Command {
+public:
+    CreateInertialCommand(urdf::LinkNodePtr& link);
+    void execute() override;
+    void undo() override;
+
+private:
+    urdf::LinkNodePtr link_;
+};
+
 class CreateVisualCommand : public Command {
 public:
     CreateVisualCommand(urdf::LinkNodePtr& link,
