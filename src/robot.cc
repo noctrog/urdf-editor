@@ -234,7 +234,7 @@ void LinkNode::DeleteCollision(int i)
 }
 
 JointNode::JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNodePtr& child)
-    : joint(joint), parent(parent), child(child), q{}
+    : joint(joint), parent(parent), child(child)
 {
 
 }
