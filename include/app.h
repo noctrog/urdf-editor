@@ -1,10 +1,13 @@
 #pragma once
 
+#define RAYGIZMO_IMPLEMENTATION
+
 #include <raylib.h>
 #include <memory>
 #include <nfd.hpp>
 #include <robot.h>
 #include <command.h>
+#include <raygizmo.h>
 
 class App
 {
@@ -27,7 +30,6 @@ private:
     void drawRobotTree();
     void drawNodeProperties();
     void drawSideMenu();
-    void drawViewport();
 
     void originGui(urdf::Origin& origin);
 
@@ -47,13 +49,13 @@ private:
 
     NFD::Guard nfdguard_;
 
-    bool bOrbiting_; // TODO
-    bool bHoverViewport_;
+    bool bShowGrid_;
+    bool bOrbiting_;
     bool bWindowShouldClose_;
     int menubar_height_;
 
     urdf::TreeNodePtr hovered_node_;
     urdf::TreeNodePtr selected_node_;
 
-    RenderTexture view_texture_;
+    RGizmo gizmo_;
 };

@@ -64,6 +64,8 @@ target_include_directories(imgui PUBLIC
     ${raylib_SOURCE_DIR}/src/external/glfw/include
 )
 
+target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
+
 file(GLOB SRC_FILES "src/*.cc")
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 

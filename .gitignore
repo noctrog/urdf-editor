@@ -2,3 +2,5 @@ build
 .cache/clangd/index
 compile_commands.json
 imgui.ini
+.DS_Store
+.nvim.lua

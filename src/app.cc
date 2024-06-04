@@ -1,9 +1,12 @@
+#include "raygizmo.h"
 #include <app.h>
 
 #include <functional>
 #include <array>
 
-#include <raylib.h>
+#include <raygizmo.h>
+
+#include <rcamera.h>
 #include <raymath.h>
 #include <rlgl.h>
 #include <rlights.h>
@@ -52,8 +55,41 @@ void DrawGridZUp(int slices, float spacing)
     rlEnd();
 }
 
+#define CAMERA_ROT_SPEED 0.003f
+#define CAMERA_MOVE_SPEED 0.01f
+#define CAMERA_ZOOM_SPEED 1.0f
+
+static void update_camera(Camera3D *camera) {
+    bool is_mmb_down = IsMouseButtonDown(2);
+    bool is_shift_down = IsKeyDown(KEY_LEFT_SHIFT);
+    Vector2 mouse_delta = GetMouseDelta();
+
+    if (is_mmb_down && is_shift_down) {
+        CameraMoveRight(camera, -CAMERA_MOVE_SPEED * mouse_delta.x, true);
+
+        Vector3 right = GetCameraRight(camera);
+        Vector3 up = Vector3CrossProduct(
+            Vector3Subtract(camera->position, camera->target), right
+        );
+        up = Vector3Scale(
+            Vector3Normalize(up), CAMERA_MOVE_SPEED * mouse_delta.y
+        );
+        camera->position = Vector3Add(camera->position, up);
+        camera->target = Vector3Add(camera->target, up);
+    } else if (is_mmb_down) {
+        CameraYaw(camera, -CAMERA_ROT_SPEED * mouse_delta.x, true);
+        CameraPitch(
+            camera, CAMERA_ROT_SPEED * mouse_delta.y, true, true, false
+        );
+    }
+
+    CameraMoveToTarget(camera, -GetMouseWheelMove() * CAMERA_ZOOM_SPEED);
+}
+
 
 App::App(int argc, char* argv[])
+    : bShowGrid_(true),
+      bOrbiting_(false)
 {
     loguru::init(argc, argv);
 }
@@ -81,7 +117,7 @@ void App::setup()
 {
     const int screenWidth = 1200;
     const int screenHeight = 800;
-    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(screenWidth, screenHeight, "URDF Editor");
 
     shader_ = LoadShader("./resources/shaders/lighting.vs", "./resources/shaders/lighting.fs");
@@ -103,27 +139,20 @@ void App::setup()
     bOrbiting_ = false;
     bWindowShouldClose_ = false;
 
+    gizmo_ = rgizmo_create();
+
     SetTargetFPS(120);
     rlImGuiSetup(true);
-
-    // Draw the menu once so we can retrieve the toolbar height
-    draw_menu();
-
-    view_texture_ = LoadRenderTexture((GetScreenWidth() - 350), GetScreenHeight() - menubar_height_);
 }
 
 void App::update()
 {
     command_buffer_.execute();
 
-    if (IsWindowResized()) {
-        UnloadRenderTexture(view_texture_);
-        view_texture_ = LoadRenderTexture((GetScreenWidth() - 350), GetScreenHeight() - menubar_height_);
-    }
-
     // Update
-    if (bOrbiting_ and bHoverViewport_) {
-        UpdateCamera(&camera_, CAMERA_THIRD_PERSON);
+    ImGuiIO& io = ImGui::GetIO();
+    if (bOrbiting_ and not io.WantCaptureMouse) {
+        update_camera(&camera_);
     }
 
     //----------------------------------------------------------------------------------
@@ -145,43 +174,53 @@ void App::update()
 
 void App::draw_menu()
 {
-    BeginDrawing();
-
-    ClearBackground(DARKGRAY);
-
     rlImGuiBegin();
 
     drawToolbar();
     drawSideMenu();
-    drawViewport();
 
     rlImGuiEnd();
-    EndDrawing();
 }
+
 
 void App::draw_scene()
 {
-    BeginTextureMode(view_texture_);
-
     ClearBackground(LIGHTGRAY);
+
+    const auto selected_link = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
+    if (selected_link) {
+        Vector3 position = {selected_link->T.m12, selected_link->T.m13, selected_link->T.m14};
+        if (rgizmo_update(&gizmo_, camera_, position)) {
+            selected_link->T = MatrixMultiply(
+                selected_link->T, rgizmo_get_tranform(gizmo_, position)
+            );
+            robot_->forward_kinematics();
+        }
+    }
 
     BeginMode3D(camera_);
 
-    DrawGridZUp(10, 1.0f);
+    if (bShowGrid_) DrawGridZUp(10, 1.0f);
 
     if (robot_) {
-        auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
+        const auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
         robot_->draw(hovered_node);
     }
 
+    if (selected_link) {
+        Vector3 position = {selected_link->T.m12, selected_link->T.m13, selected_link->T.m14};
+        rgizmo_draw(gizmo_, camera_, position);
+    }
+
     EndMode3D();
-    EndTextureMode();
 }
 
 void App::draw()
 {
+    BeginDrawing();
     draw_scene(); // Draw to render texture
     draw_menu();  // Draw to screen
+    EndDrawing();
 }
 
 void App::drawToolbar()
@@ -244,6 +283,11 @@ void App::drawToolbar()
             ImGui::EndMenu();
         }
 
+        if (ImGui::BeginMenu("View")) {
+            ImGui::MenuItem("Show Grid", nullptr, &bShowGrid_);
+            ImGui::EndMenu();
+        }
+
         if (ImGui::BeginMenu("Help")) {
             ImGui::MenuItem("About");
             ImGui::EndMenu();
@@ -262,8 +306,8 @@ void App::drawRobotTree()
         ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("robot table", 2, table_flags, ImVec2(0, 300))) {
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_NoResize, 0.9f);
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide, 0.1f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 0.9f);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 0.1f);
         ImGui::TableHeadersRow();
 
         if (not robot_) {
@@ -386,19 +430,6 @@ void App::drawSideMenu()
     ImGui::End();
 }
 
-void App::drawViewport()
-{
-    ImGui::SetNextWindowPos(ImVec2(350, ImGui::GetFrameHeight()), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x - 350,
-                                    ImGui::GetIO().DisplaySize.y - ImGui::GetFrameHeight()),
-                             ImGuiCond_Always);
-
-    ImGui::Begin("View", nullptr, ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
-    rlImGuiImageRenderTextureFit(&view_texture_, true);
-    bHoverViewport_ = ImGui::IsItemHovered();
-    ImGui::End();
-}
-
 void App::drawNodeProperties(void)
 {
     if (not selected_node_ or not robot_) return;
@@ -423,7 +454,7 @@ void App::drawNodeProperties(void)
                 }
             } else {
                 if (ImGui::Button("Create inertial component")) {
-                    link_node->link.inertial = urdf::Inertial();
+                    command_buffer_.add(std::make_shared<CreateInertialCommand>(link_node));
                 }
             }
         }
@@ -706,7 +737,6 @@ void App::menuGeometry(urdf::Geometry& geometry, Model& model)
 
 void App::cleanup()
 {
-    UnloadRenderTexture(view_texture_);
     UnloadShader(shader_);
     rlImGuiShutdown();      // Close rl gui
     CloseWindow();          // Close window and OpenGL context
