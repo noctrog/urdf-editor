@@ -50,7 +50,6 @@ private:
     NFD::Guard nfdguard_;
 
     bool bShowGrid_;
-    bool bOrbiting_;
     bool bWindowShouldClose_;
     int menubar_height_;
 

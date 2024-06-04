@@ -59,8 +59,8 @@ void DrawGridZUp(int slices, float spacing)
 #define CAMERA_MOVE_SPEED 0.01f
 #define CAMERA_ZOOM_SPEED 1.0f
 
-static void update_camera(Camera3D *camera) {
-    bool is_mmb_down = IsMouseButtonDown(2);
+static void UpdateCamera(Camera3D *camera) {
+    bool is_mmb_down = IsMouseButtonDown(MOUSE_BUTTON_MIDDLE);
     bool is_shift_down = IsKeyDown(KEY_LEFT_SHIFT);
     Vector2 mouse_delta = GetMouseDelta();
 
@@ -72,14 +72,14 @@ static void update_camera(Camera3D *camera) {
             Vector3Subtract(camera->position, camera->target), right
         );
         up = Vector3Scale(
-            Vector3Normalize(up), CAMERA_MOVE_SPEED * mouse_delta.y
+            Vector3Normalize(up), -CAMERA_MOVE_SPEED * mouse_delta.y
         );
         camera->position = Vector3Add(camera->position, up);
         camera->target = Vector3Add(camera->target, up);
     } else if (is_mmb_down) {
         CameraYaw(camera, -CAMERA_ROT_SPEED * mouse_delta.x, true);
         CameraPitch(
-            camera, CAMERA_ROT_SPEED * mouse_delta.y, true, true, false
+            camera, -CAMERA_ROT_SPEED * mouse_delta.y, true, true, false
         );
     }
 
@@ -88,8 +88,7 @@ static void update_camera(Camera3D *camera) {
 
 
 App::App(int argc, char* argv[])
-    : bShowGrid_(true),
-      bOrbiting_(false)
+    : bShowGrid_(true)
 {
     loguru::init(argc, argv);
 }
@@ -136,7 +135,6 @@ void App::setup()
 
     // Define the camera to look into our 3d world
     camera_ = { { 0.0f, 1.5f, 2.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 45.0f, 0 };
-    bOrbiting_ = false;
     bWindowShouldClose_ = false;
 
     gizmo_ = rgizmo_create();
@@ -151,19 +149,13 @@ void App::update()
 
     // Update
     ImGuiIO& io = ImGui::GetIO();
-    if (bOrbiting_ and not io.WantCaptureMouse) {
-        update_camera(&camera_);
+    if (not io.WantCaptureMouse) {
+        UpdateCamera(&camera_);
     }
 
     //----------------------------------------------------------------------------------
 
     // Input
-    if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
-        bOrbiting_ = true;
-    } else {
-        bOrbiting_ = false;
-    }
-
     if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Z)) {
         command_buffer_.undo();
     }
