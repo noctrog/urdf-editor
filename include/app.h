@@ -13,7 +13,7 @@ class App
 {
 public:
     App(int agrc, char* argv[]);
-    ~App();
+    ~App() = default;
 
     void run();
 

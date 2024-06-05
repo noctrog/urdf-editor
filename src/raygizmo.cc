@@ -559,7 +559,7 @@ void rgizmo_draw(RGizmo gizmo, Camera3D camera, Vector3 position) {
     draw_gizmo(gizmo, camera, position, colors);
 }
 
-Matrix rgizmo_get_tranform(RGizmo gizmo, Vector3 position) {
+Matrix rgizmo_get_transform(RGizmo gizmo, Vector3 position) {
     Matrix translation = MatrixTranslate(
         gizmo.update.translation.x,
         gizmo.update.translation.y,

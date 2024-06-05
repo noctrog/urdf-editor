@@ -61,9 +61,9 @@ private:
 
 class JointChangeParentCommand : public Command {
 public:
-    JointChangeParentCommand(urdf::JointNodePtr node,
-                             urdf::LinkNodePtr new_parent,
-                             urdf::RobotPtr robot);
+    JointChangeParentCommand(const urdf::JointNodePtr& node,
+                             const urdf::LinkNodePtr& new_parent,
+                             const urdf::RobotPtr& robot);
     void execute() override;
     void undo() override;
 private:

@@ -1,6 +1,6 @@
 #include <app.h>
 
-int main (int argc, char* argv[])
+auto main (int argc, char* argv[]) -> int
 {
     App app(argc, argv);
     app.run();

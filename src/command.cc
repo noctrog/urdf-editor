@@ -1,5 +1,6 @@
 #include <deque>
 #include <algorithm>
+#include <utility>
 
 #include <fmt/format.h>
 #include <robot.h>
@@ -110,9 +111,9 @@ void LoadRobotCommand::undo()
     robot_ = old_robot_;
 }
 
-JointChangeParentCommand::JointChangeParentCommand(urdf::JointNodePtr node,
-                                                   urdf::LinkNodePtr new_parent,
-                                                   urdf::RobotPtr robot)
+JointChangeParentCommand::JointChangeParentCommand(const urdf::JointNodePtr& node,
+                                                   const urdf::LinkNodePtr& new_parent,
+                                                   const urdf::RobotPtr& robot)
     : joint_(node), new_parent_(new_parent), old_parent_(node->parent), robot_(robot)
 {
 
@@ -121,8 +122,8 @@ JointChangeParentCommand::JointChangeParentCommand(urdf::JointNodePtr node,
 void JointChangeParentCommand::execute()
 {
     old_position_ = std::find(joint_->parent->children.begin(),
-                                             joint_->parent->children.end(),
-                                             joint_);
+                              joint_->parent->children.end(),
+                              joint_);
     joint_->parent->children.erase(old_position_);
     new_parent_->children.push_back(joint_);
 

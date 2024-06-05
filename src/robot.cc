@@ -66,6 +66,13 @@ Origin::Origin(const Vector3& xyz, const Vector3& rpy)
 
 }
 
+Matrix Origin::toMatrix() const
+{
+    Matrix rotMat {MatrixRotateXYZ(rpy)};
+    Matrix posMat {MatrixTranslate(xyz.x, xyz.y, xyz.z)};
+    return MatrixMultiply(rotMat, posMat);
+}
+
 Box::Box()
 {
     size.x = size.y = size.z = 1.0f;
@@ -208,13 +215,13 @@ Joint::Joint(const char *_name, const char *_parent, const char *_child, const c
 TreeNode::~TreeNode() { }
 
 LinkNode::LinkNode()
-    : link("New link"), T(MatrixIdentity())
+    : link("New link"), w_T_l(MatrixIdentity())
 {
 
 }
 
 LinkNode::LinkNode(const Link& link, const JointNodePtr& parent_joint)
-    : link(link), parent(parent_joint), T(MatrixIdentity())
+    : link(link), parent(parent_joint), w_T_l(MatrixIdentity())
 {
 
 }
@@ -254,7 +261,7 @@ RobotPtr build_robot(const char *urdf_file)
 
     auto tree_root = std::make_shared<LinkNode>();
     tree_root->link = xml_node_to_link(root_link);
-    tree_root->T = MatrixIdentity();
+    tree_root->w_T_l = MatrixIdentity();
 
     // Create all materials
     // TODO: support loading materials that are defined within the link
@@ -747,14 +754,14 @@ void Robot::forward_kinematics(void)
 void Robot::forward_kinematics(LinkNodePtr& link)
 {
     std::function<void (LinkNodePtr&)> recursion = [&](LinkNodePtr& node){
-        const Matrix& w_T_p = node->T;
+        const Matrix& w_T_p = node->w_T_l;
 
         for (auto& joint_node : node->children) {
             // Forward kinematics
             const Matrix p_T_j = origin_to_matrix(joint_node->joint.origin);
             const Matrix j_T_c = MatrixIdentity();  // TODO: joint -> child transform
             const Matrix w_T_c = MatMul(w_T_p, MatMul(p_T_j, j_T_c));
-            joint_node->child->T = w_T_c;
+            joint_node->child->w_T_l = w_T_c;
 
             // Update visual transform
             const Matrix c_T_v = origin_to_matrix(joint_node->child->link.visual->origin);
@@ -780,10 +787,7 @@ Matrix Robot::origin_to_matrix(std::optional<Origin>& origin)
     Matrix T = MatrixIdentity();
 
     if (origin) {
-        T = MatMul(
-            MatrixTranslate(origin->xyz.x, origin->xyz.y, origin->xyz.z),
-            MatrixRotateXYZ(origin->rpy)
-        );
+        T = origin->toMatrix();
     }
 
     return T;

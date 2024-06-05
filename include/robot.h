@@ -8,13 +8,32 @@
 
 #include <pugixml.hpp>
 #include <raylib.h>
+#include <raymath.h>
 
 namespace urdf {
+
+inline Vector3 MatrixToXYZ(const Matrix& m)
+{
+    Vector3 xyz {Vector3Zero()};
+
+    xyz.x = std::atan2(-m.m9, m.m10);
+    xyz.y = std::atan2(m.m8, std::sqrt(m.m0 * m.m0 + m.m4 * m.m4));
+    xyz.z = std::atan2(-m.m4, m.m0);
+
+    return xyz;
+}
+
+inline Vector3 PosFromMatrix(const Matrix& m)
+{
+    return Vector3 {m.m12, m.m13, m.m14};
+}
 
 struct Origin {
     Origin();
     Origin(const char *xyz, const char *rpy);
     Origin(const Vector3& xyz, const Vector3& rpy);
+
+    Matrix toMatrix(void) const;
 
     Vector3 xyz;
     Vector3 rpy;
@@ -194,7 +213,7 @@ struct LinkNode : TreeNode
     Model visual_model;
     std::vector<Model> collision_models;
 
-    Matrix T;
+    Matrix w_T_l; // Transform matrix from world to current link
 };
 
 struct JointNode : TreeNode

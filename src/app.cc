@@ -93,11 +93,6 @@ App::App(int argc, char* argv[])
     loguru::init(argc, argv);
 }
 
-App::~App()
-{
-
-}
-
 void App::run()
 {
     setup();
@@ -130,7 +125,7 @@ void App::setup()
                    SHADER_UNIFORM_VEC4);
 
     // Create lights
-    Light lights[MAX_LIGHTS] = { };
+    std::array<Light, MAX_LIGHTS> lights{};
     lights[0] = CreateLight(LIGHT_DIRECTIONAL, Vector3{ 1, 1, 1 }, Vector3Zero(), WHITE, shader_);
 
     // Define the camera to look into our 3d world
@@ -180,12 +175,41 @@ void App::draw_scene()
     ClearBackground(LIGHTGRAY);
 
     const auto selected_link = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
+    // TODO: the links positions cannot be edited like this since they depend on the joints. Add a
+    // way of visually editing the visual and collision members
     if (selected_link) {
-        Vector3 position = {selected_link->T.m12, selected_link->T.m13, selected_link->T.m14};
+        // Vector3 position {urdf::PosFromMatrix(selected_link->w_T_l)};
+        // if (rgizmo_update(&gizmo_, camera_, position)) {
+        //     selected_link->w_T_l = MatrixMultiply(
+        //         selected_link->w_T_l, rgizmo_get_transform(gizmo_, position)
+        //     );
+        //     robot_->forward_kinematics();
+        // }
+    }
+    const auto selected_joint = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_);
+    if (selected_joint and selected_joint->joint.origin) {
+        urdf::Origin& joint_origin = *selected_joint->joint.origin;
+
+        // Create matrix w_T_j
+        const Matrix& w_T_p = selected_joint->parent->w_T_l;
+        Matrix p_T_j = joint_origin.toMatrix();
+        Matrix w_T_j = MatrixMultiply(p_T_j, w_T_p);
+
+        const Vector3 position {urdf::PosFromMatrix(w_T_j)};
         if (rgizmo_update(&gizmo_, camera_, position)) {
-            selected_link->T = MatrixMultiply(
-                selected_link->T, rgizmo_get_tranform(gizmo_, position)
-            );
+            // Update matrix with gizmo
+            w_T_j = MatrixMultiply(w_T_j, rgizmo_get_transform(gizmo_, position));
+
+            // Get matrix p_T_j
+            p_T_j = MatrixMultiply(w_T_j, MatrixInvert(w_T_p));
+
+            // Save new origin {xyz, rpy}
+            joint_origin.xyz.x = p_T_j.m12;
+            joint_origin.xyz.y = p_T_j.m13;
+            joint_origin.xyz.z = p_T_j.m14;
+            joint_origin.rpy = urdf::MatrixToXYZ(p_T_j);
+
+            // Update the robot
             robot_->forward_kinematics();
         }
     }
@@ -199,8 +223,17 @@ void App::draw_scene()
         robot_->draw(hovered_node);
     }
 
-    if (selected_link) {
-        Vector3 position = {selected_link->T.m12, selected_link->T.m13, selected_link->T.m14};
+    // TODO: links should not be moved. Replace with editor for visual and collision
+    // if (selected_link) {
+    //     Vector3 position {urdf::PosFromMatrix(selected_link->w_T_l)};
+    //     rgizmo_draw(gizmo_, camera_, position);
+    // }
+    if (selected_joint and selected_joint->joint.origin) {
+        const Matrix& w_T_p = selected_joint->parent->w_T_l;
+        const Matrix p_T_j = selected_joint->joint.origin->toMatrix();
+        const Matrix w_T_j = MatrixMultiply(p_T_j, w_T_p);
+
+        const Vector3 position {urdf::PosFromMatrix(w_T_j)};
         rgizmo_draw(gizmo_, camera_, position);
     }
 
@@ -410,7 +443,7 @@ void App::drawRobotTree()
 void App::drawSideMenu()
 {
     ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(350, GetScreenHeight() - ImGui::GetFrameHeight()), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(350, static_cast<float>(GetScreenHeight()) - ImGui::GetFrameHeight()), ImGuiCond_Always);
 
     ImGui::Begin("Robot Tree", nullptr, ImGuiWindowFlags_NoMove |
                  ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
@@ -422,7 +455,7 @@ void App::drawSideMenu()
     ImGui::End();
 }
 
-void App::drawNodeProperties(void)
+void App::drawNodeProperties()
 {
     if (not selected_node_ or not robot_) return;
 

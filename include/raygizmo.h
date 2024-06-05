@@ -46,6 +46,6 @@ RGizmo rgizmo_create(void);
 
 bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position);
 void rgizmo_draw(RGizmo gizmo, Camera3D camera, Vector3 position);
-Matrix rgizmo_get_tranform(RGizmo gizmo, Vector3 position);
+Matrix rgizmo_get_transform(RGizmo gizmo, Vector3 position);
 
 #endif  // RAYGIZMO_H
