@@ -1,4 +1,3 @@
-#include "raygizmo.h"
 #include <app.h>
 
 #include <functional>
@@ -24,33 +23,33 @@
 
 #include <robot.h>
 
-void DrawGridZUp(int slices, float spacing)
+void drawGridZUp(int slices, float spacing)
 {
-    int halfSlices = slices/2;
+    int half_slices = slices/2;
 
     rlBegin(RL_LINES);
-        for (int i = -halfSlices; i <= halfSlices; i++)
+        for (int i = -half_slices; i <= half_slices; i++)
         {
             if (i == 0)
             {
-                rlColor3f(0.5f, 0.5f, 0.5f);
-                rlColor3f(0.5f, 0.5f, 0.5f);
-                rlColor3f(0.5f, 0.5f, 0.5f);
-                rlColor3f(0.5f, 0.5f, 0.5f);
+                rlColor3f(0.5F, 0.5F, 0.5F);
+                rlColor3f(0.5F, 0.5F, 0.5F);
+                rlColor3f(0.5F, 0.5F, 0.5F);
+                rlColor3f(0.5F, 0.5F, 0.5F);
             }
             else
             {
-                rlColor3f(0.75f, 0.75f, 0.75f);
-                rlColor3f(0.75f, 0.75f, 0.75f);
-                rlColor3f(0.75f, 0.75f, 0.75f);
-                rlColor3f(0.75f, 0.75f, 0.75f);
+                rlColor3f(0.75F, 0.75F, 0.75F);
+                rlColor3f(0.75F, 0.75F, 0.75F);
+                rlColor3f(0.75F, 0.75F, 0.75F);
+                rlColor3f(0.75F, 0.75F, 0.75F);
             }
 
-            rlVertex3f((float)i*spacing, (float)-halfSlices*spacing, 0.0f);
-            rlVertex3f((float)i*spacing, (float)halfSlices*spacing, 0.0f);
+            rlVertex3f(static_cast<float>(i)*spacing, static_cast<float>(-half_slices)*spacing, 0.0F);
+            rlVertex3f(static_cast<float>(i)*spacing, static_cast<float>(half_slices)*spacing, 0.0F);
 
-            rlVertex3f((float)-halfSlices*spacing, (float)i*spacing, 0.0f);
-            rlVertex3f((float)halfSlices*spacing, (float)i*spacing, 0.0f);
+            rlVertex3f(static_cast<float>(-half_slices)*spacing, static_cast<float>(i)*spacing, 0.0F);
+            rlVertex3f(static_cast<float>(half_slices)*spacing, static_cast<float>(i)*spacing, 0.0F);
         }
     rlEnd();
 }
@@ -59,7 +58,7 @@ void DrawGridZUp(int slices, float spacing)
 #define CAMERA_MOVE_SPEED 0.01f
 #define CAMERA_ZOOM_SPEED 1.0f
 
-static void UpdateCamera(Camera3D *camera) {
+static void updateCamera(Camera3D *camera) {
     bool is_mmb_down = IsMouseButtonDown(MOUSE_BUTTON_MIDDLE);
     bool is_shift_down = IsKeyDown(KEY_LEFT_SHIFT);
     Vector2 mouse_delta = GetMouseDelta();
@@ -109,10 +108,10 @@ void App::run()
 
 void App::setup()
 {
-    const int screenWidth = 1200;
-    const int screenHeight = 800;
+    const int screen_width = 1200;
+    const int screen_height = 800;
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
-    InitWindow(screenWidth, screenHeight, "URDF Editor");
+    InitWindow(screen_width, screen_height, "URDF Editor");
 
     shader_ = LoadShader("./resources/shaders/lighting.vs", "./resources/shaders/lighting.fs");
     shader_.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader_, "viewPos");
@@ -121,7 +120,7 @@ void App::setup()
 
     SetShaderValue(shader_,
                    shader_.locs[SHADER_LOC_COLOR_AMBIENT],
-                   std::array<float, 4>({3.0f, 3.0f, 3.0f, 1.0f}).data(),
+                   std::array<float, 4>({3.0F, 3.0F, 3.0F, 1.0F}).data(),
                    SHADER_UNIFORM_VEC4);
 
     // Create lights
@@ -129,7 +128,7 @@ void App::setup()
     lights[0] = CreateLight(LIGHT_DIRECTIONAL, Vector3{ 1, 1, 1 }, Vector3Zero(), WHITE, shader_);
 
     // Define the camera to look into our 3d world
-    camera_ = { { 0.0f, 1.5f, 2.5f }, { 0.0f, 0.0f, 0.0f }, { 0.0f, 0.0f, 1.0f }, 45.0f, 0 };
+    camera_ = { { 0.0F, 1.5F, 2.5F }, { 0.0F, 0.0F, 0.0F }, { 0.0F, 0.0F, 1.0F }, 45.0F, 0 };
     bWindowShouldClose_ = false;
 
     gizmo_ = rgizmo_create();
@@ -145,7 +144,7 @@ void App::update()
     // Update
     ImGuiIO& io = ImGui::GetIO();
     if (not io.WantCaptureMouse) {
-        UpdateCamera(&camera_);
+        updateCamera(&camera_);
     }
 
     //----------------------------------------------------------------------------------
@@ -159,7 +158,7 @@ void App::update()
     }
 }
 
-void App::draw_menu()
+void App::drawMenu()
 {
     rlImGuiBegin();
 
@@ -170,13 +169,16 @@ void App::draw_menu()
 }
 
 
-void App::draw_scene()
+void App::drawScene()
 {
     ClearBackground(LIGHTGRAY);
 
     const auto selected_link = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
-    // TODO: the links positions cannot be edited like this since they depend on the joints. Add a
-    // way of visually editing the visual and collision members
+    // TODO(ramon): the links positions cannot be edited like this since they
+    // depend on the joints. Add a way of visually editing the visual and
+    // collision members Proposal:
+    //   - hover on any mesh to select the visual
+    //   - hover on any wireframe of the collision to select the colision
     if (selected_link) {
         // Vector3 position {urdf::PosFromMatrix(selected_link->w_T_l)};
         // if (rgizmo_update(&gizmo_, camera_, position)) {
@@ -191,49 +193,49 @@ void App::draw_scene()
         urdf::Origin& joint_origin = *selected_joint->joint.origin;
 
         // Create matrix w_T_j
-        const Matrix& w_T_p = selected_joint->parent->w_T_l;
-        Matrix p_T_j = joint_origin.toMatrix();
-        Matrix w_T_j = MatrixMultiply(p_T_j, w_T_p);
+        const Matrix& w_t_p = selected_joint->parent->w_T_l;
+        Matrix p_t_j = joint_origin.toMatrix();
+        Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
 
-        const Vector3 position {urdf::PosFromMatrix(w_T_j)};
+        const Vector3 position {urdf::PosFromMatrix(w_t_j)};
         if (rgizmo_update(&gizmo_, camera_, position)) {
             // Update matrix with gizmo
-            w_T_j = MatrixMultiply(w_T_j, rgizmo_get_transform(gizmo_, position));
+            w_t_j = MatrixMultiply(w_t_j, rgizmo_get_transform(gizmo_, position));
 
             // Get matrix p_T_j
-            p_T_j = MatrixMultiply(w_T_j, MatrixInvert(w_T_p));
+            p_t_j = MatrixMultiply(w_t_j, MatrixInvert(w_t_p));
 
             // Save new origin {xyz, rpy}
-            joint_origin.xyz.x = p_T_j.m12;
-            joint_origin.xyz.y = p_T_j.m13;
-            joint_origin.xyz.z = p_T_j.m14;
-            joint_origin.rpy = urdf::MatrixToXYZ(p_T_j);
+            joint_origin.xyz.x = p_t_j.m12;
+            joint_origin.xyz.y = p_t_j.m13;
+            joint_origin.xyz.z = p_t_j.m14;
+            joint_origin.rpy = urdf::MatrixToXYZ(p_t_j);
 
             // Update the robot
-            robot_->forward_kinematics();
+            robot_->forwardKinematics();
         }
     }
 
     BeginMode3D(camera_);
 
-    if (bShowGrid_) DrawGridZUp(10, 1.0f);
+    if (bShowGrid_) drawGridZUp(10, 1.0F);
 
     if (robot_) {
         const auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
         robot_->draw(hovered_node);
     }
 
-    // TODO: links should not be moved. Replace with editor for visual and collision
+    // TODO(ramon): links should not be moved. Replace with editor for visual and collision
     // if (selected_link) {
     //     Vector3 position {urdf::PosFromMatrix(selected_link->w_T_l)};
     //     rgizmo_draw(gizmo_, camera_, position);
     // }
     if (selected_joint and selected_joint->joint.origin) {
-        const Matrix& w_T_p = selected_joint->parent->w_T_l;
-        const Matrix p_T_j = selected_joint->joint.origin->toMatrix();
-        const Matrix w_T_j = MatrixMultiply(p_T_j, w_T_p);
+        const Matrix& w_t_p = selected_joint->parent->w_T_l;
+        const Matrix p_t_j = selected_joint->joint.origin->toMatrix();
+        const Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
 
-        const Vector3 position {urdf::PosFromMatrix(w_T_j)};
+        const Vector3 position {urdf::PosFromMatrix(w_t_j)};
         rgizmo_draw(gizmo_, camera_, position);
     }
 
@@ -243,8 +245,8 @@ void App::draw_scene()
 void App::draw()
 {
     BeginDrawing();
-    draw_scene(); // Draw to render texture
-    draw_menu();  // Draw to screen
+    drawScene(); // Draw to render texture
+    drawMenu();  // Draw to screen
     EndDrawing();
 }
 
@@ -254,15 +256,15 @@ void App::drawToolbar()
         if (ImGui::BeginMenu("File")) {
             // File menu items go here
             if (ImGui::MenuItem("Open", "Ctrl+O")) {
-                NFD::UniquePath outPath;
+                NFD::UniquePath out_path;
 
                 // prepare filters for the dialog
-                nfdfilteritem_t filterItem[2] = {{"URDF file", "urdf,xml"}};
+                nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf,xml"}};
 
                 // show the dialog
-                nfdresult_t result = NFD::OpenDialog(outPath, filterItem, 1);
+                nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
                 if (result == NFD_OKAY) {
-                    command_buffer_.add(std::make_shared<LoadRobotCommand>(outPath.get(), robot_, shader_));
+                    command_buffer_.add(std::make_shared<LoadRobotCommand>(out_path.get(), robot_, shader_));
                 } else if (result == NFD_CANCEL) {
                     LOG_F(INFO, "User pressed cancel.");
                 } else {
@@ -271,12 +273,12 @@ void App::drawToolbar()
             }
 
             if (ImGui::MenuItem("Save", "Ctrl+S", false, static_cast<bool>(robot_))) {
-                NFD::UniquePath outPath;
-                nfdfilteritem_t filterItem[2] = {{"URDF file", "urdf"}};
-                nfdresult_t result = NFD::SaveDialog(outPath, filterItem, 1);
+                NFD::UniquePath out_path;
+                nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf"}};
+                nfdresult_t result = NFD::SaveDialog(out_path, filter_item, 1);
                 if (result == NFD_OKAY) {
-                    LOG_F(INFO, "Success! %s", outPath.get());
-                    export_robot(*robot_, outPath.get());
+                    LOG_F(INFO, "Success! %s", out_path.get());
+                    exportRobot(*robot_, out_path.get());
                 } else if (result == NFD_CANCEL) {
                     LOG_F(INFO, "User pressed cancel.");
                 } else {
@@ -291,10 +293,10 @@ void App::drawToolbar()
         }
 
         if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, command_buffer_.can_undo())) {
+            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, command_buffer_.canUndo())) {
                 command_buffer_.undo();
             }
-            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, command_buffer_.can_redo())) {
+            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, command_buffer_.canRedo())) {
                 command_buffer_.redo();
             }
             ImGui::Separator();
@@ -331,8 +333,8 @@ void App::drawRobotTree()
         ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("robot table", 2, table_flags, ImVec2(0, 300))) {
-        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 0.9f);
-        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 0.1f);
+        ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 0.9F);
+        ImGui::TableSetupColumn("Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 0.1F);
         ImGui::TableHeadersRow();
 
         if (not robot_) {
@@ -345,7 +347,7 @@ void App::drawRobotTree()
             ImGuiTreeNodeFlags tree_flags = ImGuiTreeNodeFlags_DefaultOpen |
                 ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAllColumns;
 
-            urdf::LinkNodePtr current_link = robot_->get_root();
+            urdf::LinkNodePtr current_link = robot_->getRoot();
 
             std::function<void (const urdf::LinkNodePtr&)> recursion = [&](auto link){
                 if (not link) return;
@@ -378,7 +380,7 @@ void App::drawRobotTree()
                 // Drop target for joint node
                 if (ImGui::BeginDragDropTarget()) {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("JOINT_NODE")) {
-                        urdf::JointNodePtr dropped_joint_node = *(urdf::JointNodePtr*)payload->Data;
+                        urdf::JointNodePtr dropped_joint_node = *static_cast<urdf::JointNodePtr*>(payload->Data);
                         LOG_F(INFO, "Dropped joint %s onto link %s", dropped_joint_node->joint.name.c_str(), link->link.name.c_str());
                         command_buffer_.add(std::make_shared<JointChangeParentCommand>(dropped_joint_node, link, robot_));
                     }
@@ -414,7 +416,7 @@ void App::drawRobotTree()
                         // Drop target for link node
                         if (ImGui::BeginDragDropTarget()) {
                             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("LINK_NODE")) {
-                                void* dropped_link_node_id = *(void**)payload->Data;
+                                // void* dropped_link_node_id = *static_cast<void**>(payload->Data);
                                 // Handle the drop for a link node (update parent/child relationships)
                             }
                             ImGui::EndDragDropTarget();
@@ -529,7 +531,7 @@ void App::drawNodeProperties()
 
         static const char* joint_types[] = {"revolute", "continuous", "prismatic", "fixed", "floating", "planar"};
         int choice = joint_node->joint.type;
-        if (ImGui::Combo("dropdown", &choice, joint_types, IM_ARRAYSIZE(joint_types), urdf::Joint::NUM_JOINT_TYPES)) {
+        if (ImGui::Combo("dropdown", &choice, joint_types, IM_ARRAYSIZE(joint_types), urdf::Joint::kNumJointTypes)) {
             joint_node->joint.type = static_cast<urdf::Joint::Type>(choice);
         }
 
@@ -537,7 +539,7 @@ void App::drawNodeProperties()
         ImGui::Text("Child link: %s", joint_node->child->link.name.c_str());
 
         menuOrigin(joint_node->joint.origin);
-        if (choice != urdf::Joint::FIXED) {
+        if (choice != urdf::Joint::kFixed) {
             menuAxis(joint_node->joint.axis);
             menuDynamics(joint_node->joint.dynamics);
             menuLimit(joint_node->joint.limit);
@@ -703,8 +705,8 @@ void App::menuGeometry(urdf::Geometry& geometry, Model& model)
                     if (auto cylinder = std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
                         float old_radius = cylinder->radius;
                         float old_length = cylinder->length;
-                        ImGui::InputFloat("Radius", &cylinder->radius, 0.01f, 0.1f, "%.3f");
-                        ImGui::InputFloat("Length", &cylinder->length, 0.01f, 0.1f, "%.3f");
+                        ImGui::InputFloat("Radius", &cylinder->radius, 0.01F, 0.1F, "%.3f");
+                        ImGui::InputFloat("Length", &cylinder->length, 0.01F, 0.1F, "%.3f");
 
                         if (old_radius != cylinder->radius or old_length != cylinder->length) {
                             command_buffer_.add(std::make_shared<UpdateGeometryCylinderCommand>(
@@ -715,7 +717,7 @@ void App::menuGeometry(urdf::Geometry& geometry, Model& model)
                 case 2:
                     if (auto sphere = std::dynamic_pointer_cast<urdf::Sphere>(type)) {
                         float old_radius = sphere->radius;
-                        ImGui::InputFloat("Radius", &sphere->radius, 0.01f, 0.1f, "%.3f");
+                        ImGui::InputFloat("Radius", &sphere->radius, 0.01F, 0.1F, "%.3f");
                         if (old_radius != sphere->radius)
                         command_buffer_.add(std::make_shared<UpdateGeometrySphereCommand>(
                             sphere, sphere->radius, model, shader_));
@@ -726,16 +728,16 @@ void App::menuGeometry(urdf::Geometry& geometry, Model& model)
                         ImGui::Text("Filename: %s", gmesh->filename.c_str());
                         ImGui::SameLine();
                         if (ImGui::Button("...")) {
-                            NFD::UniquePath outPath;
+                            NFD::UniquePath out_path;
 
                             // prepare filters for the dialog
-                            nfdfilteritem_t filterItem[2] = {{"Mesh filename", "dae,stl"}};
+                            nfdfilteritem_t filter_item[2] = {{"Mesh filename", "dae,stl"}};
 
                             // show the dialog
-                            nfdresult_t result = NFD::OpenDialog(outPath, filterItem, 1);
+                            nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
                             if (result == NFD_OKAY) {
                                 command_buffer_.add(std::make_shared<UpdateGeometryMeshCommand>(
-                                    gmesh, outPath.get(), model, shader_));
+                                    gmesh, out_path.get(), model, shader_));
                             } else if (result == NFD_CANCEL) {
                                 LOG_F(INFO, "User pressed cancel.");
                             } else {
@@ -743,7 +745,7 @@ void App::menuGeometry(urdf::Geometry& geometry, Model& model)
                             }
                         }
                         if (ImGui::InputText("Filename", &gmesh->filename, ImGuiInputTextFlags_EnterReturnsTrue)) {
-                            // TODO try to load mesh and update
+                            // TODO(ramon): try to load mesh and update
                         }
                     }
                     break;
@@ -763,6 +765,7 @@ void App::menuGeometry(urdf::Geometry& geometry, Model& model)
 void App::cleanup()
 {
     UnloadShader(shader_);
+    rgizmo_unload();
     rlImGuiShutdown();      // Close rl gui
     CloseWindow();          // Close window and OpenGL context
 }

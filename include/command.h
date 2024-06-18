@@ -24,8 +24,8 @@ public:
     void undo();
     void redo();
 
-    bool can_undo();
-    bool can_redo();
+    bool canUndo();
+    bool canRedo();
 private:
     std::vector<CommandPtr> executed_commands_;
     std::vector<CommandPtr> new_commands_;
@@ -46,7 +46,7 @@ private:
 
 class LoadRobotCommand : public Command {
 public:
-    LoadRobotCommand(const std::string& filename,
+    LoadRobotCommand(std::string filename,
                      std::shared_ptr<urdf::Robot>& robot,
                      Shader& shader);
     void execute() override;
@@ -103,7 +103,7 @@ private:
 
 class CreateNameCommand : public Command {
 public:
-    CreateNameCommand(std::optional<std::string>& target);
+    explicit CreateNameCommand(std::optional<std::string>& target);
     void execute() override;
     void undo() override;
 
@@ -113,7 +113,7 @@ private:
 
 class CreateOriginCommand : public Command {
 public:
-    CreateOriginCommand(std::optional<urdf::Origin>& target);
+    explicit CreateOriginCommand(std::optional<urdf::Origin>& target);
     void execute() override;
     void undo() override;
 private:
@@ -137,7 +137,7 @@ private:
 
 class CreateAxisCommand : public Command {
 public:
-    CreateAxisCommand(std::optional<urdf::Axis>& target);
+    explicit CreateAxisCommand(std::optional<urdf::Axis>& target);
     void execute() override;
     void undo() override;
 private:
@@ -146,7 +146,7 @@ private:
 
 class CreateDynamicsCommand : public Command {
 public:
-    CreateDynamicsCommand(std::optional<urdf::Dynamics>& target);
+    explicit CreateDynamicsCommand(std::optional<urdf::Dynamics>& target);
     void execute() override;
     void undo() override;
 private:
@@ -155,7 +155,7 @@ private:
 
 class CreateLimitCommand : public Command {
 public:
-    CreateLimitCommand(std::optional<urdf::Limit>& target);
+    explicit CreateLimitCommand(std::optional<urdf::Limit>& target);
     void execute() override;
     void undo() override;
 private:
@@ -179,7 +179,7 @@ private:
 
 class CreateInertialCommand : public Command {
 public:
-    CreateInertialCommand(urdf::LinkNodePtr& link);
+    explicit CreateInertialCommand(urdf::LinkNodePtr& link);
     void execute() override;
     void undo() override;
 
@@ -215,7 +215,7 @@ private:
 
 class AddCollisionCommand : public Command {
 public:
-    AddCollisionCommand(urdf::LinkNodePtr& link);
+    explicit AddCollisionCommand(urdf::LinkNodePtr& link);
     void execute() override;
     void undo() override;
 private:
@@ -252,8 +252,8 @@ private:
 class UpdateGeometryCylinderCommand : public Command {
 public:
     UpdateGeometryCylinderCommand(std::shared_ptr<urdf::Cylinder>& cylinder,
-                                  const float old_radius,
-                                  const float old_height,
+                                  float old_radius,
+                                  float old_height,
                                   Model& model,
                                   const Shader& shader);
     void execute() override;
@@ -271,7 +271,7 @@ private:
 class UpdateGeometrySphereCommand : public Command {
 public:
     UpdateGeometrySphereCommand(std::shared_ptr<urdf::Sphere>& sphere,
-                                const float old_radius,
+                                float old_radius,
                                 Model& model,
                                 const Shader& shader);
     void execute() override;

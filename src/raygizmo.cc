@@ -1,10 +1,10 @@
-#include <stdio.h>
+#include <cstdio>
 #include "raygizmo.h"
 #include "raylib.h"
 #include "raymath.h"
 #include "rlgl.h"
-#include <stdlib.h>
-#include <string.h>
+#include <cstdlib>
+#include <cstring>
 
 #if defined(PLATFORM_DESKTOP)  // Shaders for PLATFORM_DESKTOP
 static const char *SHADER_VERT = "\

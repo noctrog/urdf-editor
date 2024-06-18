@@ -12,7 +12,7 @@
 class App
 {
 public:
-    App(int agrc, char* argv[]);
+    App(int argc, char* argv[]);
     ~App() = default;
 
     void run();
@@ -22,8 +22,8 @@ private:
     void setup();
     void update();
     void draw();
-    void draw_menu();
-    void draw_scene();
+    void drawMenu();
+    void drawScene();
     void cleanup();
 
     void drawToolbar();

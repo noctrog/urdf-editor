@@ -107,10 +107,10 @@ struct Inertia {
 };
 
 struct Inertial {
-    Inertial(const char *xyz = nullptr, const char *rpy = nullptr,
-             float mass = 0.0f,
-             float ixx = 0.0f, float iyy = 0.0f, float izz = 0.0f,
-             float ixy = 0.0f, float ixz = 0.0f, float iyz = 0.0f);
+    explicit Inertial(const char *xyz = nullptr, const char *rpy = nullptr,
+                      float mass = 0.0F,
+                      float ixx = 0.0F, float iyy = 0.0F, float izz = 0.0F,
+                      float ixy = 0.0F, float ixz = 0.0F, float iyz = 0.0F);
 
     Origin origin;
     float mass;
@@ -132,8 +132,8 @@ struct Collision {
 
 struct Axis {
     Axis();
-    Axis(const Vector3& _xyz);
-    Axis(const char *xyz);
+    explicit Axis(const Vector3& _xyz);
+    explicit Axis(const char *s_xyz);
 
     Vector3 xyz;
 };
@@ -157,8 +157,8 @@ struct Limit
 };
 
 struct Link {
-    Link();
-    Link(const std::string& name);
+    Link() = default;
+    explicit Link(std::string name);
 
     std::string name;
     std::optional<Inertial> inertial;
@@ -170,8 +170,7 @@ struct Joint {
     Joint(const char *name, const char *parent, const char *child, const char *type);
 
     enum Type : int {
-        REVOLUTE = 0, CONTINUOUS, PRISMATIC, FIXED, FLOATING, PLANAR,
-        NUM_JOINT_TYPES
+        kRevolute = 0, kContinuous, kPrismatic, kFixed, kFloating, kPlanar, kNumJointTypes
     };
 
     std::string name;
@@ -188,7 +187,7 @@ struct Joint {
 
 struct TreeNode {
     TreeNode() = default;
-    virtual ~TreeNode() = 0;
+    virtual ~TreeNode() = default;
 };
 
 struct LinkNode;
@@ -201,10 +200,10 @@ using JointNodePtr = std::shared_ptr<JointNode>;
 struct LinkNode : TreeNode
 {
     LinkNode();
-    LinkNode(const Link& link, const JointNodePtr& parent_joint);
+    LinkNode(Link link, JointNodePtr parent_joint);
 
-    void AddCollision();
-    void DeleteCollision(int i);
+    void addCollision();
+    void deleteCollision(int i);
 
     Link link;
     JointNodePtr parent;
@@ -218,7 +217,7 @@ struct LinkNode : TreeNode
 
 struct JointNode : TreeNode
 {
-    JointNode(const Joint& joint, const LinkNodePtr& parent, const LinkNodePtr& child);
+    JointNode(Joint joint, LinkNodePtr parent, LinkNodePtr child);
 
     Joint joint;
     LinkNodePtr parent;
@@ -227,33 +226,32 @@ struct JointNode : TreeNode
 
 class Robot {
 public:
-    Robot(const LinkNodePtr& root,
-          const std::map<std::string, Material>& materials = {});
+    explicit Robot(LinkNodePtr root, const std::map<std::string, Material>& materials = {});
     ~Robot();
 
-    void forward_kinematics();
-    void forward_kinematics(LinkNodePtr& link);
+    void forwardKinematics();
+    void forwardKinematics(LinkNodePtr& link);
 
-    void build_geometry(void);
-    void update_material(const LinkNodePtr& link);
+    void buildGeometry();
+    void updateMaterial(const LinkNodePtr& link);
 
-    void print_tree(void) const;
+    void printTree() const;
 
-    void set_shader(const Shader& shader);
+    void setShader(const Shader& shader);
 
     void draw(const LinkNodePtr& highlighted = nullptr) const;
 
-    LinkNodePtr get_root(void) const;
+    LinkNodePtr getRoot() const;
 
-    LinkNodePtr get_link(const Ray& ray);
+    LinkNodePtr getLink(const Ray& ray);
 
-    void for_every_link(const std::function<void(const LinkNodePtr&)>& func) const;
-    void for_every_joint(const std::function<void(const JointNodePtr&)>& func) const;
+    void forEveryLink(const std::function<void(const LinkNodePtr&)>& func) const;
+    void forEveryJoint(const std::function<void(const JointNodePtr&)>& func) const;
 
-    const std::map<std::string, Material>& get_materials(void) const;
+    const std::map<std::string, Material>& getMaterials() const;
 
 private:
-    static Matrix origin_to_matrix(std::optional<Origin>& origin);
+    static Matrix originToMatrix(std::optional<Origin>& origin);
 
     LinkNodePtr root_;
 
@@ -266,28 +264,28 @@ private:
 
 using RobotPtr = std::shared_ptr<Robot>;
 
-RobotPtr build_robot(const char *urdf_file);
+RobotPtr buildRobot(const char *urdf_file);
 
-void export_robot(const Robot& robot, std::string out_filename);
+void exportRobot(const Robot& robot, std::string out_filename);
 
-pugi::xml_node find_root(const pugi::xml_document& doc);
+pugi::xml_node findRoot(const pugi::xml_document& doc);
 
 // XML to data structures
-Link xml_node_to_link(const pugi::xml_node& xml_node);
-Joint xml_node_to_joint(const pugi::xml_node& xml_node);
+Link xmlNodeToLink(const pugi::xml_node& xml_node);
+Joint xmlNodeToJoint(const pugi::xml_node& xml_node);
 
-std::optional<Inertial> xml_node_to_inertial(const pugi::xml_node& xml_node);
-std::optional<Origin> xml_node_to_origin(const pugi::xml_node& xml_node);
-Geometry xml_node_to_geometry(const pugi::xml_node& xml_node);
-std::optional<Material> xml_node_to_material(const pugi::xml_node& xml_node);
+std::optional<Inertial> xmlNodeToInertial(const pugi::xml_node& xml_node);
+std::optional<Origin> xmlNodeToOrigin(const pugi::xml_node& xml_node);
+Geometry xmlNodeToGeometry(const pugi::xml_node& xml_node);
+std::optional<Material> xmlNodeToMaterial(const pugi::xml_node& xml_node);
 
 // Data structures to XML
-void link_to_xml_node(pugi::xml_node& xml_node, const Link& link);
-void joint_to_xml_node(pugi::xml_node& xml_node, const Joint& joint);
+void linkToXmlNode(pugi::xml_node& xml_node, const Link& link);
+void jointToXmlNode(pugi::xml_node& xml_node, const Joint& joint);
 
-void inertial_to_xml_node(pugi::xml_node& xml_node,  const Inertial& inertial);
-void origin_to_xml_node(pugi::xml_node& xml_node, const Origin& origin);
-void geometry_to_xml_node(pugi::xml_node& xml_node, const Geometry& geometry);
-void material_to_xml_node(pugi::xml_node& xml_node, const Material& material);
+void inertialToXmlNode(pugi::xml_node& xml_node,  const Inertial& inertial);
+void originToXmlNode(pugi::xml_node& xml_node, const Origin& origin);
+void geometryToXmlNode(pugi::xml_node& xml_node, const Geometry& geometry);
+void materialToXmlNode(pugi::xml_node& xml_node, const Material& material);
 
 } // namespace urdf
