@@ -41,6 +41,10 @@ private:
     void menuDynamics(std::optional<urdf::Dynamics>& dynamics);
     void menuLimit(std::optional<urdf::Limit>& limit);
 
+    void menuPropertiesInertial(urdf::LinkNodePtr link_node);
+    void menuPropertiesVisual(urdf::LinkNodePtr link_node);
+    void menuPropertiesCollisions(urdf::LinkNodePtr link_node, int i);
+
     CommandBuffer command_buffer_;
 
     Camera camera_;
@@ -55,6 +59,7 @@ private:
 
     urdf::TreeNodePtr hovered_node_;
     urdf::TreeNodePtr selected_node_;
+    urdf::OriginRawPtr selected_link_origin_;
 
     RGizmo gizmo_;
 };

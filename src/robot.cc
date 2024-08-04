@@ -836,7 +836,7 @@ void Robot::draw(const LinkNodePtr& highlighted) const
             }
         }
         for (const Model& model : link->collision_models) {
-            DrawModelWires(model, Vector3Zero(), 1.0, LIGHTGRAY);
+            DrawModelWires(model, Vector3Zero(), 1.0, GRAY);
         }
     };
 

@@ -164,6 +164,7 @@ static void draw_gizmo(
     float radius = gizmo.view.size * Vector3Distance(camera.position, position);
 
     BeginMode3D(camera);
+    float previous_line_width = rlGetLineWidth();
     rlSetLineWidth(gizmo.view.handle_draw_thickness);
     rlDisableDepthTest();
 
@@ -281,6 +282,8 @@ static void draw_gizmo(
             GetWorldToScreen(position, camera), GetMousePosition(), WHITE
         );
     }
+
+    rlSetLineWidth(previous_line_width);
 }
 
 static void rgizmo_load(void) {

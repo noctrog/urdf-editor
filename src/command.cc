@@ -231,8 +231,9 @@ void CreateNameCommand::undo()
     target_ = std::nullopt;
 }
 
-CreateOriginCommand::CreateOriginCommand(std::optional<urdf::Origin>& target)
-    : target_(target)
+CreateOriginCommand::CreateOriginCommand(std::optional<urdf::Origin>& target,
+                                         urdf::OriginRawPtr& selected_origin)
+    : target_(target), selected_origin_(selected_origin)
 {
 
 }
@@ -240,11 +241,13 @@ CreateOriginCommand::CreateOriginCommand(std::optional<urdf::Origin>& target)
 void CreateOriginCommand::execute()
 {
     target_ = urdf::Origin();
+    selected_origin_ = &*target_;
 }
 
 void CreateOriginCommand::undo()
 {
     target_ = std::nullopt;
+    selected_origin_ = nullptr;
 }
 
 UpdateOriginCommand::UpdateOriginCommand(urdf::Origin& old_origin,
@@ -344,8 +347,9 @@ void ChangeGeometryCommand::undo()
     // model_.meshes[0] = mesh_;
 }
 
-CreateInertialCommand::CreateInertialCommand(urdf::LinkNodePtr& link)
-    : link_(link)
+CreateInertialCommand::CreateInertialCommand(urdf::LinkNodePtr& link,
+                                             urdf::OriginRawPtr& selected_origin)
+    : link_(link), selected_origin_(selected_origin)
 {
 
 }
@@ -353,11 +357,13 @@ CreateInertialCommand::CreateInertialCommand(urdf::LinkNodePtr& link)
 void CreateInertialCommand::execute()
 {
     link_->link.inertial = urdf::Inertial();
+    selected_origin_ = &link_->link.inertial->origin;
 }
 
 void CreateInertialCommand::undo()
 {
     link_->link.inertial = std::nullopt;
+    selected_origin_ = nullptr;
 }
 
 CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link,

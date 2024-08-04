@@ -39,6 +39,8 @@ struct Origin {
     Vector3 rpy;
 };
 
+using OriginRawPtr = Origin*;
+
 struct GeometryType {
     virtual Model generateGeometry() = 0;
 };
@@ -230,7 +232,7 @@ public:
     ~Robot();
 
     void forwardKinematics();
-    void forwardKinematics(LinkNodePtr& link);
+    static void forwardKinematics(LinkNodePtr& link);
 
     void buildGeometry();
     void updateMaterial(const LinkNodePtr& link);

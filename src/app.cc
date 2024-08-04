@@ -87,7 +87,7 @@ static void updateCamera(Camera3D *camera) {
 
 
 App::App(int argc, char* argv[])
-    : bShowGrid_(true)
+    : bShowGrid_(true), selected_link_origin_{nullptr}
 {
     loguru::init(argc, argv);
 }
@@ -173,21 +173,34 @@ void App::drawScene()
 {
     ClearBackground(LIGHTGRAY);
 
+    // TODO(ramon): links can't be selected. Select instead visual, collision,
+    // inertial and modify it's origin, if it exists. const auto selected_link =
     const auto selected_link = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
-    // TODO(ramon): the links positions cannot be edited like this since they
-    // depend on the joints. Add a way of visually editing the visual and
-    // collision members Proposal:
-    //   - hover on any mesh to select the visual
-    //   - hover on any wireframe of the collision to select the colision
-    if (selected_link) {
-        // Vector3 position {urdf::PosFromMatrix(selected_link->w_T_l)};
-        // if (rgizmo_update(&gizmo_, camera_, position)) {
-        //     selected_link->w_T_l = MatrixMultiply(
-        //         selected_link->w_T_l, rgizmo_get_transform(gizmo_, position)
-        //     );
-        //     robot_->forward_kinematics();
-        // }
+    if (selected_link and selected_link_origin_) {
+        // Create matrix w_T_o
+        const Matrix& w_t_l = selected_link->w_T_l;
+        Matrix l_t_o = selected_link_origin_->toMatrix();
+        Matrix w_t_o = MatrixMultiply(l_t_o, w_t_l);
+
+        const Vector3 position {urdf::PosFromMatrix(w_t_o)};
+        if (rgizmo_update(&gizmo_, camera_, position)) {
+            // Update matrix with gizmo
+            w_t_o = MatrixMultiply(w_t_o, rgizmo_get_transform(gizmo_, position));
+
+            // Get matrix l_t_o
+            l_t_o = MatrixMultiply(w_t_o, MatrixInvert(w_t_l));
+
+            // Save new origin
+            selected_link_origin_->xyz.x = l_t_o.m12;
+            selected_link_origin_->xyz.y = l_t_o.m13;
+            selected_link_origin_->xyz.z = l_t_o.m14;
+            selected_link_origin_->rpy = urdf::MatrixToXYZ(l_t_o);
+
+            // Update the robot
+            robot_->forwardKinematics();
+        }
     }
+
     const auto selected_joint = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_);
     if (selected_joint and selected_joint->joint.origin) {
         urdf::Origin& joint_origin = *selected_joint->joint.origin;
@@ -225,11 +238,15 @@ void App::drawScene()
         robot_->draw(hovered_node);
     }
 
-    // TODO(ramon): links should not be moved. Replace with editor for visual and collision
-    // if (selected_link) {
-    //     Vector3 position {urdf::PosFromMatrix(selected_link->w_T_l)};
-    //     rgizmo_draw(gizmo_, camera_, position);
-    // }
+    if (selected_link and selected_link_origin_) {
+        const Matrix& w_t_l = selected_link->w_T_l;
+        Matrix l_t_o = selected_link_origin_->toMatrix();
+        Matrix w_t_o = MatrixMultiply(l_t_o, w_t_l);
+
+        const Vector3 position {urdf::PosFromMatrix(w_t_o)};
+        rgizmo_draw(gizmo_, camera_, position);
+    }
+
     if (selected_joint and selected_joint->joint.origin) {
         const Matrix& w_t_p = selected_joint->parent->w_T_l;
         const Matrix p_t_j = selected_joint->joint.origin->toMatrix();
@@ -366,8 +383,9 @@ void App::drawRobotTree()
                     hovered_node_ = link;
                 }
 
-                if (ImGui::IsItemClicked()) {
+                if (ImGui::IsItemClicked() and selected_node_ != link) {
                     selected_node_ = link;
+                    selected_link_origin_ = nullptr;
                 }
 
                 // Drag source for link node
@@ -457,75 +475,106 @@ void App::drawSideMenu()
     ImGui::End();
 }
 
+void App::menuPropertiesInertial(urdf::LinkNodePtr link_node)
+{
+    if (auto& inertial = link_node->link.inertial) {
+        selected_link_origin_ = &inertial->origin;
+
+        ImGui::InputFloat("Mass", &inertial->mass);
+
+        originGui(inertial->origin);
+
+        if (ImGui::TreeNode("Inertia")) {
+            ImGui::InputFloat("ixx", &inertial->inertia.ixx);
+            ImGui::InputFloat("iyy", &inertial->inertia.iyy);
+            ImGui::InputFloat("izz", &inertial->inertia.izz);
+            ImGui::InputFloat("ixy", &inertial->inertia.ixy);
+            ImGui::InputFloat("ixz", &inertial->inertia.ixz);
+            ImGui::InputFloat("iyz", &inertial->inertia.iyz);
+            ImGui::TreePop();
+        }
+    } else {
+        selected_link_origin_ = nullptr;
+        if (ImGui::Button("Create inertial component")) {
+            command_buffer_.add(std::make_shared<CreateInertialCommand>(link_node, selected_link_origin_));
+        }
+    }
+}
+
+void App::menuPropertiesVisual(urdf::LinkNodePtr link_node)
+{
+    auto& visual = link_node->link.visual;
+    if (visual.has_value() and visual->origin.has_value()) {
+        selected_link_origin_ = &*visual->origin;
+        menuName(visual->name, "visual");
+        menuOrigin(visual->origin);
+        menuGeometry(visual->geometry, link_node->visual_model);
+        menuMaterial(visual->material_name);
+        ImGui::Separator();
+        if (ImGui::Button("Delete visual component")) {
+            command_buffer_.add(std::make_shared<DeleteVisualCommand>(link_node, robot_));
+        }
+    } else {
+        selected_link_origin_ = nullptr;
+        if (ImGui::Button("Create visual component")) {
+            command_buffer_.add(std::make_shared<CreateVisualCommand>(link_node, robot_, shader_));
+        }
+    }
+}
+
+void App::menuPropertiesCollisions(urdf::LinkNodePtr link_node, int i)
+{
+    urdf::Collision& col = link_node->link.collision[i];
+
+    selected_link_origin_ = col.origin.has_value() ? &col.origin.value() : nullptr;
+
+    menuName(col.name, "collision");
+    menuOrigin(col.origin);
+    menuGeometry(col.geometry, link_node->collision_models[i]);
+}
+
 void App::drawNodeProperties()
 {
     if (not selected_node_ or not robot_) return;
 
     if (auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
-        ImGui::InputText("Name##link", &link_node->link.name, ImGuiInputTextFlags_None);
+        if (ImGui::BeginTabBar("PropertiesBar", ImGuiTabBarFlags_FittingPolicyScroll | ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)) {
+            if (ImGui::BeginTabItem("Inertial##PropMenuInertial")) {
+                menuPropertiesInertial(link_node);
+                ImGui::EndTabItem();
+            }
 
-        if (ImGui::CollapsingHeader("Inertial")) {
-            if (auto& inertial = link_node->link.inertial) {
-                ImGui::InputFloat("Mass", &inertial->mass);
+            if (ImGui::BeginTabItem("Visual##PropMenuVisual")) {
+                menuPropertiesVisual(link_node);
+                ImGui::EndTabItem();
+            }
 
-                originGui(inertial->origin);
+            if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing)) {
+                command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
+            }
 
-                if (ImGui::TreeNode("Inertia")) {
-                    ImGui::InputFloat("ixx", &inertial->inertia.ixx);
-                    ImGui::InputFloat("iyy", &inertial->inertia.iyy);
-                    ImGui::InputFloat("izz", &inertial->inertia.izz);
-                    ImGui::InputFloat("ixy", &inertial->inertia.ixy);
-                    ImGui::InputFloat("ixz", &inertial->inertia.ixz);
-                    ImGui::InputFloat("iyz", &inertial->inertia.iyz);
-                    ImGui::TreePop();
+            // TODO(ramon) fix bug: when changing name, the tab looses focus
+            for (int i = 0; i < link_node->link.collision.size(); ++i) {
+                bool open = true;
+                const urdf::Collision& col = link_node->link.collision[i];
+                char name_buffer[256];
+                if (col.name.has_value()) {
+                    snprintf(name_buffer, 256, "%s##ColTabItem%d", col.name.value().c_str(), i);
+                } else {
+                    snprintf(name_buffer, 256, "Col %d##ColTabItem%d", i, i);
                 }
-            } else {
-                if (ImGui::Button("Create inertial component")) {
-                    command_buffer_.add(std::make_shared<CreateInertialCommand>(link_node));
+                if (ImGui::BeginTabItem(name_buffer, &open)) {
+                    menuPropertiesCollisions(link_node, i);
+                    ImGui::EndTabItem();
+                }
+
+                if (not open) {
+                    command_buffer_.add(std::make_shared<DeleteCollisionCommand>(link_node, i));
                 }
             }
+
+            ImGui::EndTabBar();
         }
-        if (ImGui::CollapsingHeader("Visual")) {
-            if (auto& visual = link_node->link.visual) {
-                menuName(visual->name, "visual");
-                menuOrigin(visual->origin);
-                menuGeometry(visual->geometry, link_node->visual_model);
-                menuMaterial(visual->material_name);
-                ImGui::Separator();
-                if (ImGui::Button("Delete visual component")) {
-                    command_buffer_.add(std::make_shared<DeleteVisualCommand>(link_node, robot_));
-                }
-            } else {
-                if (ImGui::Button("Create visual component")) {
-                    command_buffer_.add(std::make_shared<CreateVisualCommand>(link_node, robot_, shader_));
-                }
-            }
-        }
-        if (ImGui::CollapsingHeader("Collision")) {
-            if (link_node->link.collision.size() > 0) {
-                for (size_t i = 0; i < link_node->link.collision.size(); ++i) {
-                    urdf::Collision& col = link_node->link.collision[i];
-                    if (ImGui::TreeNode(fmt::format("Collision {}", i).c_str())) { // name origin geometry
-                        menuName(col.name, "collision");
-                        menuOrigin(col.origin);
-                        menuGeometry(col.geometry, link_node->collision_models[i]);
-                        if (ImGui::Button("Delete collision component")) {
-                            command_buffer_.add(std::make_shared<DeleteCollisionCommand>(link_node, i));
-                        }
-                        ImGui::TreePop();
-                    }
-                }
-                ImGui::Separator();
-                if (ImGui::Button("Add collision component")) {
-                    command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
-                }
-            } else {
-                if (ImGui::Button("Create collision component")) {
-                    command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
-                }
-            }
-        }
-        ImGui::Separator();
     } else if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
         ImGui::InputText("Name##joint", &joint_node->joint.name, ImGuiInputTextFlags_None);
 
@@ -560,6 +609,10 @@ void App::originGui(urdf::Origin& origin)
             command_buffer_.add(std::make_shared<UpdateOriginCommand>(old_origin, origin, origin, robot_));
         }
 
+        if (ImGui::IsItemClicked() and selected_node_) {
+            selected_link_origin_ = &origin;
+        }
+
         ImGui::TreePop();
     }
 }
@@ -581,7 +634,7 @@ void App::menuOrigin(std::optional<urdf::Origin>& origin)
         originGui(*origin);
     } else {
         if (ImGui::Button("Create origin")) {
-            command_buffer_.add(std::make_shared<CreateOriginCommand>(origin));
+            command_buffer_.add(std::make_shared<CreateOriginCommand>(origin, selected_link_origin_));
         }
     }
 }

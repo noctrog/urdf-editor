@@ -25,11 +25,10 @@ cmake --build build -j$(nproc)
 - [x] Do/Undo system
 - [x] GUI (with ImGui)
 - [x] Drag and drop link (GUI URDF Tree)
-- [ ] Mesh geometry support (in the works through Assimp)
-- [ ] 3D Gizmo for visual editing
-- [ ] Select links by clicking on the screen
+- [x] 3D Gizmo for visual editing
 - [ ] Visualize joint movements
 - [ ] Material editor
+- [ ] Mesh geometry support (in the works through Assimp)
 
 # Contributing
 

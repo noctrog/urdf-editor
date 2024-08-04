@@ -113,11 +113,12 @@ private:
 
 class CreateOriginCommand : public Command {
 public:
-    explicit CreateOriginCommand(std::optional<urdf::Origin>& target);
+    explicit CreateOriginCommand(std::optional<urdf::Origin>& target, urdf::OriginRawPtr& selected_origin);
     void execute() override;
     void undo() override;
 private:
     std::optional<urdf::Origin>& target_;
+    urdf::OriginRawPtr& selected_origin_;
 };
 
 class UpdateOriginCommand : public Command {
@@ -179,12 +180,13 @@ private:
 
 class CreateInertialCommand : public Command {
 public:
-    explicit CreateInertialCommand(urdf::LinkNodePtr& link);
+    explicit CreateInertialCommand(urdf::LinkNodePtr& link, urdf::OriginRawPtr& selected_origin);
     void execute() override;
     void undo() override;
 
 private:
     urdf::LinkNodePtr link_;
+    urdf::OriginRawPtr& selected_origin_;
 };
 
 class CreateVisualCommand : public Command {
