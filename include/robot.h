@@ -241,7 +241,8 @@ public:
 
     void setShader(const Shader& shader);
 
-    void draw(const LinkNodePtr& highlighted = nullptr) const;
+    void draw(const LinkNodePtr& highlighted = nullptr,
+              const LinkNodePtr& selected = nullptr) const;
 
     LinkNodePtr getRoot() const;
 

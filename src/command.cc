@@ -426,6 +426,9 @@ AddCollisionCommand::AddCollisionCommand(urdf::LinkNodePtr& link)
 void AddCollisionCommand::execute()
 {
     link_->addCollision();
+    if (link_->parent and link_->parent->parent) {
+        urdf::Robot::forwardKinematics(link_->parent->parent);
+    }
 }
 
 void AddCollisionCommand::undo()

@@ -235,7 +235,7 @@ void App::drawScene()
 
     if (robot_) {
         const auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
-        robot_->draw(hovered_node);
+        robot_->draw(hovered_node, selected_link);
     }
 
     if (selected_link and selected_link_origin_) {
@@ -504,8 +504,10 @@ void App::menuPropertiesInertial(urdf::LinkNodePtr link_node)
 void App::menuPropertiesVisual(urdf::LinkNodePtr link_node)
 {
     auto& visual = link_node->link.visual;
-    if (visual.has_value() and visual->origin.has_value()) {
-        selected_link_origin_ = &*visual->origin;
+    if (visual.has_value()) {
+        if (visual->origin.has_value()) {
+            selected_link_origin_ = &*visual->origin;
+        }
         menuName(visual->name, "visual");
         menuOrigin(visual->origin);
         menuGeometry(visual->geometry, link_node->visual_model);
@@ -554,14 +556,14 @@ void App::drawNodeProperties()
             }
 
             // TODO(ramon) fix bug: when changing name, the tab looses focus
-            for (int i = 0; i < link_node->link.collision.size(); ++i) {
+            for (size_t i = 0; i < link_node->link.collision.size(); ++i) {
                 bool open = true;
                 const urdf::Collision& col = link_node->link.collision[i];
                 char name_buffer[256];
                 if (col.name.has_value()) {
-                    snprintf(name_buffer, 256, "%s##ColTabItem%d", col.name.value().c_str(), i);
+                    snprintf(name_buffer, 256, "%s##ColTabItem%zu", col.name.value().c_str(), i);
                 } else {
-                    snprintf(name_buffer, 256, "Col %d##ColTabItem%d", i, i);
+                    snprintf(name_buffer, 256, "Col %zu##ColTabItem%zu", i, i);
                 }
                 if (ImGui::BeginTabItem(name_buffer, &open)) {
                     menuPropertiesCollisions(link_node, i);

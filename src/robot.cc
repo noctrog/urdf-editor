@@ -825,9 +825,9 @@ void Robot::updateMaterial(const LinkNodePtr& link)
     }
 }
 
-void Robot::draw(const LinkNodePtr& highlighted) const
+void Robot::draw(const LinkNodePtr& highlighted, const LinkNodePtr& selected) const
 {
-    auto func = [&](const LinkNodePtr& link){
+    auto draw_link = [&](const LinkNodePtr& link){
         if (link->link.visual) {
             if (highlighted.get() == link.get()) {
                 DrawModel(link->visual_model, Vector3Zero(), 1.0, RED);
@@ -836,11 +836,15 @@ void Robot::draw(const LinkNodePtr& highlighted) const
             }
         }
         for (const Model& model : link->collision_models) {
-            DrawModelWires(model, Vector3Zero(), 1.0, GRAY);
+            if (selected.get() == link.get()) {
+                DrawModelWires(model, Vector3Zero(), 1.0, GREEN);
+            } else {
+                DrawModelWires(model, Vector3Zero(), 1.0, GRAY);
+            }
         }
     };
 
-    forEveryLink(func);
+    forEveryLink(draw_link);
 }
 
 void Robot::setShader(const Shader& sh)
