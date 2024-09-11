@@ -828,7 +828,7 @@ void Robot::updateMaterial(const LinkNodePtr& link)
 void Robot::draw(const LinkNodePtr& highlighted, const LinkNodePtr& selected) const
 {
     auto draw_link = [&](const LinkNodePtr& link){
-        if (link->link.visual) {
+        if (link->link.visual and link->visual_model.meshCount > 0) {
             if (highlighted.get() == link.get()) {
                 DrawModel(link->visual_model, Vector3Zero(), 1.0, RED);
             } else {

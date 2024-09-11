@@ -168,7 +168,8 @@ public:
     ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry,
                           urdf::GeometryTypePtr new_geometry,
                           urdf::Geometry& target,
-                          Model& model);
+                          Model& model,
+                          urdf::RobotPtr& robot);
     void execute() override;
     void undo() override;
 private:
@@ -176,6 +177,7 @@ private:
     urdf::GeometryTypePtr new_geometry_;
     urdf::Geometry& target_;
     Model& model_;
+    urdf::RobotPtr robot_;
 };
 
 class CreateInertialCommand : public Command {
@@ -266,6 +268,7 @@ private:
     float old_radius_;
     float old_length_;
     std::shared_ptr<urdf::Cylinder> cylinder_;
+    urdf::LinkNodePtr link_;
     Model& model_;
     const Shader& shader_;
 };

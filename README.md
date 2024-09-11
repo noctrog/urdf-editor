@@ -30,6 +30,12 @@ cmake --build build -j$(nproc)
 - [ ] Material editor
 - [ ] Mesh geometry support (in the works through Assimp)
 
+# Known bugs
+
+- [ ] Changing name of collision looses focus on the collision tab.
+- [x] When changing the geometry type, the forward kinematics have to be refreshed.
+- [ ] Crash when changing geometry type to Mesh.
+
 # Contributing
 
 Contributions are always welcome! Feel free to open an issue or create a merge

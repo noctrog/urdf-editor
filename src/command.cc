@@ -1,5 +1,6 @@
 #include <deque>
 #include <algorithm>
+#include <filesystem>
 #include <utility>
 
 #include <fmt/format.h>
@@ -322,8 +323,9 @@ void CreateLimitCommand::undo()
 ChangeGeometryCommand::ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry,
                                              urdf::GeometryTypePtr new_geometry,
                                              urdf::Geometry& target,
-                                             Model& model)
-    : old_geometry_(std::move(old_geometry)), new_geometry_(std::move(new_geometry)), target_(target), model_(model)
+                                             Model& model,
+                                             urdf::RobotPtr& robot)
+    : old_geometry_(std::move(old_geometry)), new_geometry_(std::move(new_geometry)), target_(target), model_(model), robot_(robot)
 {
 
 }
@@ -336,6 +338,8 @@ void ChangeGeometryCommand::execute()
     model_ = target_.type->generateGeometry();
     // mesh_ = target_.type->generateGeometry();
     // model_.meshes[0] = mesh_; // TODO: might need to update material
+    
+    robot_->forwardKinematics();
 }
 
 void ChangeGeometryCommand::undo()
@@ -345,6 +349,8 @@ void ChangeGeometryCommand::undo()
     UnloadModel(model_);
     model_ = target_.type->generateGeometry();
     // model_.meshes[0] = mesh_;
+    
+    robot_->forwardKinematics();
 }
 
 CreateInertialCommand::CreateInertialCommand(urdf::LinkNodePtr& link,
@@ -471,6 +477,7 @@ void UpdateGeometryBoxCommand::execute()
     box_->size = new_size_;
 
     UnloadModel(model_);
+    model_ = Model{};
     model_ = box_->generateGeometry();
 
     model_.materials[0].shader = shader_;
@@ -485,6 +492,7 @@ void UpdateGeometryBoxCommand::undo()
     box_->size = old_size_;
 
     UnloadModel(model_);
+    model_ = Model{};
     model_ = box_->generateGeometry();
 
     model_.materials[0].shader = shader_;
@@ -511,6 +519,7 @@ void UpdateGeometryCylinderCommand::execute()
     cylinder_->length = new_length_;
 
     UnloadModel(model_);
+    model_ = Model{};
     model_ = cylinder_->generateGeometry();
 
     model_.materials[0].shader = shader_;
@@ -526,6 +535,7 @@ void UpdateGeometryCylinderCommand::undo()
     cylinder_->length = old_length_;
 
     UnloadModel(model_);
+    model_ = Model{};
     model_ = cylinder_->generateGeometry();
 
     model_.materials[0].shader = shader_;
@@ -549,6 +559,7 @@ void UpdateGeometrySphereCommand::execute()
     sphere_->radius = new_radius_;
 
     UnloadModel(model_);
+    model_ = Model{};
     model_ = sphere_->generateGeometry();
 
     model_.materials[0].shader = shader_;
@@ -586,7 +597,10 @@ void UpdateGeometryMeshCommand::execute()
     mesh_->filename = new_filename_;
 
     UnloadModel(model_);
-    model_ = mesh_->generateGeometry();
+    model_ = Model{};
+    if (std::filesystem::exists(mesh_->filename)) {
+        model_ = mesh_->generateGeometry();
+    }
 
     model_.materials[0].shader = shader_;
     model_.transform = t;

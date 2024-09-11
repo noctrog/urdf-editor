@@ -17,28 +17,28 @@
         par_shapes_scale(cylinder, radius, radius, height);
 
         // Translate the cylinder to center it at the origin
-        par_shapes_translate(cylinder, 0, 0, -height / 2.0f);
+        par_shapes_translate(cylinder, 0, 0, -height / 2.0F);
 
         // Create top cap
         float center_top[] = { 0, 0, height / 2 };
         float normal_top[] = { 0, 0, 1 };
-        par_shapes_mesh* capTop = par_shapes_create_disk(radius, slices, center_top, normal_top);
-        capTop->tcoords = PAR_MALLOC(float, 2 * capTop->npoints);
-        for (int i = 0; i < 2 * capTop->npoints; i++) capTop->tcoords[i] = 0.0f;
+        par_shapes_mesh* cap_top = par_shapes_create_disk(radius, slices, center_top, normal_top);
+        cap_top->tcoords = PAR_MALLOC(float, 2 * cap_top->npoints);
+        for (int i = 0; i < 2 * cap_top->npoints; i++) cap_top->tcoords[i] = 0.0F;
 
         // Create bottom cap
         float center_bot[] = { 0, 0, 0 };
         float normal_bot[] = { 0, 0, 1 };
-        par_shapes_mesh* capBottom = par_shapes_create_disk(radius, slices, center_bot, normal_bot);
+        par_shapes_mesh* cap_bottom = par_shapes_create_disk(radius, slices, center_bot, normal_bot);
         float x_vec[] = {1, 0, 0};
-        par_shapes_rotate(capBottom, -PI, x_vec);
-        par_shapes_translate(capBottom, 0, 0, -height / 2.0f);
-        capBottom->tcoords = PAR_MALLOC(float, 2 * capBottom->npoints);
-        for (int i = 0; i < 2 * capBottom->npoints; i++) capBottom->tcoords[i] = 0.95f;
+        par_shapes_rotate(cap_bottom, -PI, x_vec);
+        par_shapes_translate(cap_bottom, 0, 0, -height / 2.0F);
+        cap_bottom->tcoords = PAR_MALLOC(float, 2 * cap_bottom->npoints);
+        for (int i = 0; i < 2 * cap_bottom->npoints; i++) cap_bottom->tcoords[i] = 0.95F;
 
         // Merge cylinder and caps
-        par_shapes_merge_and_free(cylinder, capTop);
-        par_shapes_merge_and_free(cylinder, capBottom);
+        par_shapes_merge_and_free(cylinder, cap_top);
+        par_shapes_merge_and_free(cylinder, cap_bottom);
 
 
         mesh.vertices = (float *)RL_MALLOC(cylinder->ntriangles*3*3*sizeof(float));
@@ -116,7 +116,7 @@ std::vector<Mesh> LoadColladaMeshes(const std::string& filename) {
 }
 
 Model LoadModelFromCollada(const std::string& filename) {
-    Model model = { 0 };
+    Model model = {};
     std::vector<Mesh> meshes = LoadColladaMeshes(filename);
     model.meshCount = meshes.size();
     model.meshes = (Mesh*)RL_MALLOC(model.meshCount * sizeof(Mesh));
