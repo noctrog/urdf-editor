@@ -9,6 +9,12 @@ stack and is platform agnostic, you only need a C++17 compiler.
 
 # Install
 
+Make sure that the following X dependencies are installed:
+
+```bash
+sudo apt install pkg-config libgtk-3-dev libxi-dev libxcursor-dev libxinerama-dev libxrandr-dev
+```
+
 All the dependencies are automatically downloaded and compiled with CMake. To
 install, simply run:
 
