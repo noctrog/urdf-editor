@@ -15,7 +15,7 @@ FetchContent_Declare(
 FetchContent_Declare(
   pugixml
   GIT_REPOSITORY https://github.com/zeux/pugixml.git
-  GIT_TAG v1.14
+  GIT_TAG v1.15
 )
 FetchContent_Declare(
   loguru
@@ -30,12 +30,12 @@ FetchContent_Declare(
 FetchContent_Declare(
   nfd
   GIT_REPOSITORY https://github.com/btzy/nativefiledialog-extended.git
-  GIT_TAG v1.1.1
+  GIT_TAG v1.2.1
 )
 FetchContent_Declare(
   fmt
   GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-  GIT_TAG 10.2.1
+  GIT_TAG 11.1.3
 )
 # set(ASSIMP_BUILD_ASSIMP_TOOLS OFF)
 # set(ASSIMP_BUILD_TESTS OFF)
@@ -43,7 +43,7 @@ FetchContent_Declare(
 FetchContent_Declare(
   assimp
   GIT_REPOSITORY https://github.com/assimp/assimp.git
-  GIT_TAG v5.3.1
+  GIT_TAG v5.4.3
 )
 set(LOGURU_WITH_STREAMS TRUE)
 FetchContent_MakeAvailable(raylib imgui pugixml loguru nfd fmt assimp)
