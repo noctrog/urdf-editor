@@ -3,7 +3,9 @@
 #define RAYGIZMO_IMPLEMENTATION
 
 #include <raylib.h>
+#include <functional>
 #include <memory>
+#include <optional>
 #include <nfd.hpp>
 #include <robot.h>
 #include <command.h>
@@ -62,4 +64,25 @@ private:
     urdf::OriginRawPtr selected_link_origin_;
 
     RGizmo gizmo_;
+
+    // Gizmo undo tracking
+    RGizmoState prev_gizmo_state_ = RGIZMO_STATE_COLD;
+    urdf::Origin* gizmo_drag_origin_ = nullptr;
+    std::optional<urdf::Origin> snapshot_gizmo_origin_;
+
+    // ImGui continuous edit snapshots (only one widget active at a time)
+    std::optional<float> snapshot_float_;
+    std::optional<Vector3> snapshot_vec3_;
+    std::optional<std::string> snapshot_string_;
+    std::optional<urdf::Origin> snapshot_origin_;
+
+    void inputFloatUndoable(const char* label, float& value,
+                            float step = 0, float step_fast = 0,
+                            const char* fmt = "%.3f",
+                            std::function<void()> post_action = nullptr);
+    void inputFloat3Undoable(const char* label, Vector3& vec,
+                             const char* fmt = "%.3f",
+                             std::function<void()> post_action = nullptr);
+    void inputTextUndoable(const char* label, std::string& str,
+                           std::function<void()> post_action = nullptr);
 };

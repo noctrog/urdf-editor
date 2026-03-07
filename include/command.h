@@ -1,5 +1,6 @@
 #pragma once
 
+#include <functional>
 #include <string>
 #include <robot.h>
 
@@ -13,6 +14,31 @@ class Command {
 };
 
 using CommandPtr = std::shared_ptr<Command>;
+
+template <typename T>
+class UpdatePropertyCommand : public Command {
+public:
+    UpdatePropertyCommand(T& target, T old_value, T new_value,
+                          std::function<void()> post_action = nullptr)
+        : target_(target), old_value_(std::move(old_value)),
+          new_value_(std::move(new_value)),
+          post_action_(std::move(post_action)) {}
+
+    void execute() override {
+        target_ = new_value_;
+        if (post_action_) post_action_();
+    }
+    void undo() override {
+        target_ = old_value_;
+        if (post_action_) post_action_();
+    }
+
+private:
+    T& target_;
+    T old_value_;
+    T new_value_;
+    std::function<void()> post_action_;
+};
 
 class CommandBuffer
 {
@@ -88,19 +114,6 @@ private:
     urdf::RobotPtr& robot_;
 };
 
-class ChangeNameCommand : public Command {
-public:
-    ChangeNameCommand(const std::string& old_name,
-                      const std::string& new_name,
-                      std::string& target);
-    void execute() override;
-    void undo() override;
-private:
-    const std::string old_name_;
-    const std::string new_name_;
-    std::string& target_;
-};
-
 class CreateNameCommand : public Command {
 public:
     explicit CreateNameCommand(std::optional<std::string>& target);
@@ -119,21 +132,6 @@ public:
 private:
     std::optional<urdf::Origin>& target_;
     urdf::OriginRawPtr& selected_origin_;
-};
-
-class UpdateOriginCommand : public Command {
-public:
-    UpdateOriginCommand(urdf::Origin& old_origin,
-                        urdf::Origin& new_origin,
-                        urdf::Origin& target,
-                        urdf::RobotPtr& robot);
-    void execute() override;
-    void undo() override;
-private:
-    urdf::Origin old_origin_;
-    urdf::Origin new_origin_;
-    urdf::Origin& target_;
-    const urdf::RobotPtr robot_;
 };
 
 class CreateAxisCommand : public Command {

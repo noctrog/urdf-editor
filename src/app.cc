@@ -221,6 +221,32 @@ void App::drawScene() {
     }
   }
 
+  bool was_active = prev_gizmo_state_ >= RGIZMO_STATE_ACTIVE;
+  bool is_active = gizmo_.state >= RGIZMO_STATE_ACTIVE;
+
+  if (!was_active && is_active) {
+    // Drag just started — snapshot the origin
+    if (selected_link && selected_link_origin_) {
+      gizmo_drag_origin_ = selected_link_origin_;
+      snapshot_gizmo_origin_ = *selected_link_origin_;
+    } else if (selected_joint && selected_joint->joint.origin) {
+      gizmo_drag_origin_ = &(*selected_joint->joint.origin);
+      snapshot_gizmo_origin_ = *selected_joint->joint.origin;
+    }
+  }
+
+  if (was_active && !is_active && gizmo_drag_origin_ && snapshot_gizmo_origin_) {
+    // Drag just ended — create undo command
+    auto fk = [this]() { robot_->forwardKinematics(); };
+    command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Origin>>(
+        *gizmo_drag_origin_, *snapshot_gizmo_origin_,
+        *gizmo_drag_origin_, fk));
+    gizmo_drag_origin_ = nullptr;
+    snapshot_gizmo_origin_.reset();
+  }
+
+  prev_gizmo_state_ = gizmo_.state;
+
   BeginMode3D(camera_);
 
   if (bShowGrid_)
@@ -500,17 +526,17 @@ void App::menuPropertiesInertial(urdf::LinkNodePtr link_node) {
   if (auto &inertial = link_node->link.inertial) {
     selected_link_origin_ = &inertial->origin;
 
-    ImGui::InputFloat("Mass", &inertial->mass);
+    inputFloatUndoable("Mass", inertial->mass);
 
     originGui(inertial->origin);
 
     if (ImGui::TreeNode("Inertia")) {
-      ImGui::InputFloat("ixx", &inertial->inertia.ixx);
-      ImGui::InputFloat("iyy", &inertial->inertia.iyy);
-      ImGui::InputFloat("izz", &inertial->inertia.izz);
-      ImGui::InputFloat("ixy", &inertial->inertia.ixy);
-      ImGui::InputFloat("ixz", &inertial->inertia.ixz);
-      ImGui::InputFloat("iyz", &inertial->inertia.iyz);
+      inputFloatUndoable("ixx", inertial->inertia.ixx);
+      inputFloatUndoable("iyy", inertial->inertia.iyy);
+      inputFloatUndoable("izz", inertial->inertia.izz);
+      inputFloatUndoable("ixy", inertial->inertia.ixy);
+      inputFloatUndoable("ixz", inertial->inertia.ixz);
+      inputFloatUndoable("iyz", inertial->inertia.iyz);
       ImGui::TreePop();
     }
   } else {
@@ -606,15 +632,17 @@ void App::drawNodeProperties() {
     }
   } else if (auto joint_node =
                  std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
-    ImGui::InputText("Name##joint", &joint_node->joint.name,
-                     ImGuiInputTextFlags_None);
+    inputTextUndoable("Name##joint", joint_node->joint.name);
 
     static const char *joint_types[] = {"revolute", "continuous", "prismatic",
                                         "fixed",    "floating",   "planar"};
     int choice = joint_node->joint.type;
+    urdf::Joint::Type old_type = joint_node->joint.type;
     if (ImGui::Combo("dropdown", &choice, joint_types,
                      IM_ARRAYSIZE(joint_types), urdf::Joint::kNumJointTypes)) {
       joint_node->joint.type = static_cast<urdf::Joint::Type>(choice);
+      command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Joint::Type>>(
+          joint_node->joint.type, old_type, joint_node->joint.type));
     }
 
     ImGui::Text("Parent link: %s", joint_node->parent->link.name.c_str());
@@ -630,18 +658,24 @@ void App::drawNodeProperties() {
 }
 
 void App::originGui(urdf::Origin &origin) {
-  urdf::Origin old_origin = origin;
-
   if (ImGui::TreeNode("Origin")) {
-    if (ImGui::InputFloat3("Position", &origin.xyz.x)) {
-      command_buffer_.add(std::make_shared<UpdateOriginCommand>(
-          old_origin, origin, origin, robot_));
-    }
+    auto fk = [this]() { robot_->forwardKinematics(); };
 
-    if (ImGui::InputFloat3("Orientation", &origin.rpy.x)) {
-      command_buffer_.add(std::make_shared<UpdateOriginCommand>(
-          old_origin, origin, origin, robot_));
-    }
+    auto originField = [&](const char* label, Vector3& vec) {
+      Vector3 pre = vec;
+      ImGui::InputFloat3(label, &vec.x);
+      if (ImGui::IsItemActivated()) snapshot_origin_ = origin;
+      if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_origin_) {
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Origin>>(
+            origin, *snapshot_origin_, origin, fk));
+        snapshot_origin_.reset();
+      }
+      if (pre.x != vec.x || pre.y != vec.y || pre.z != vec.z)
+        robot_->forwardKinematics();
+    };
+
+    originField("Position", origin.xyz);
+    originField("Orientation", origin.rpy);
 
     if (ImGui::IsItemClicked() and selected_node_) {
       selected_link_origin_ = &origin;
@@ -653,7 +687,7 @@ void App::originGui(urdf::Origin &origin) {
 
 void App::menuName(std::optional<std::string> &name, const char *label) {
   if (name) {
-    ImGui::InputText("Name", &(*name));
+    inputTextUndoable("Name", *name);
   } else {
     if (ImGui::Button("Create name")) {
       command_buffer_.add(std::make_shared<CreateNameCommand>(name));
@@ -675,7 +709,7 @@ void App::menuOrigin(std::optional<urdf::Origin> &origin) {
 void App::menuMaterial(std::optional<std::string> &material_name,
                        const char *label) {
   if (material_name) {
-    ImGui::InputText("Material name", &(*material_name));
+    inputTextUndoable("Material name", *material_name);
   } else {
     if (ImGui::Button("Create material")) {
       command_buffer_.add(std::make_shared<CreateNameCommand>(material_name));
@@ -686,9 +720,12 @@ void App::menuMaterial(std::optional<std::string> &material_name,
 void App::menuAxis(std::optional<urdf::Axis> &axis) {
   if (axis) {
     if (ImGui::TreeNode("Axis")) {
-      ImGui::InputFloat3("xyz", &axis->xyz.x);
+      inputFloat3Undoable("xyz", axis->xyz);
       if (ImGui::Button("Delete axis")) {
+        auto old_axis = *axis;
         axis = std::nullopt;
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::optional<urdf::Axis>>>(
+            axis, old_axis, std::nullopt));
       }
       ImGui::TreePop();
     }
@@ -702,10 +739,13 @@ void App::menuAxis(std::optional<urdf::Axis> &axis) {
 void App::menuDynamics(std::optional<urdf::Dynamics> &dynamics) {
   if (dynamics) {
     if (ImGui::TreeNode("Dynamics")) {
-      ImGui::InputFloat("Damping", &dynamics->damping);
-      ImGui::InputFloat("Friction", &dynamics->friction);
+      inputFloatUndoable("Damping", dynamics->damping);
+      inputFloatUndoable("Friction", dynamics->friction);
       if (ImGui::Button("Delete dynamics")) {
+        auto old_dynamics = *dynamics;
         dynamics = std::nullopt;
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::optional<urdf::Dynamics>>>(
+            dynamics, old_dynamics, std::nullopt));
       }
       ImGui::TreePop();
     }
@@ -719,12 +759,15 @@ void App::menuDynamics(std::optional<urdf::Dynamics> &dynamics) {
 void App::menuLimit(std::optional<urdf::Limit> &limit) {
   if (limit) {
     if (ImGui::TreeNode("Limit")) {
-      ImGui::InputFloat("Lower", &limit->lower);
-      ImGui::InputFloat("Upper", &limit->upper);
-      ImGui::InputFloat("Effort", &limit->effort);
-      ImGui::InputFloat("Velocity", &limit->velocity);
+      inputFloatUndoable("Lower", limit->lower);
+      inputFloatUndoable("Upper", limit->upper);
+      inputFloatUndoable("Effort", limit->effort);
+      inputFloatUndoable("Velocity", limit->velocity);
       if (ImGui::Button("Delete limit")) {
+        auto old_limit = *limit;
         limit = std::nullopt;
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::optional<urdf::Limit>>>(
+            limit, old_limit, std::nullopt));
       }
       ImGui::TreePop();
     }
@@ -778,34 +821,53 @@ void App::menuGeometry(urdf::Geometry& geometry, Model& model) {
       switch (choice) {
       case 0:
         if (auto box = std::dynamic_pointer_cast<urdf::Box>(type)) {
-          static Vector3 old_size = box->size;
-          if (ImGui::InputFloat3("Size", &box->size.x, "%.3f")) {
+          Vector3 pre = box->size;
+          ImGui::InputFloat3("Size", &box->size.x, "%.3f");
+          if (ImGui::IsItemActivated()) snapshot_vec3_ = pre;
+          if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_vec3_) {
             command_buffer_.add(std::make_shared<UpdateGeometryBoxCommand>(
-                box, old_size, model, shader_));
+                box, *snapshot_vec3_, model, shader_));
+            snapshot_vec3_.reset();
           }
         }
         break;
       case 1:
         if (auto cylinder = std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
-          float old_radius = cylinder->radius;
-          float old_length = cylinder->length;
+          float pre_r = cylinder->radius;
           ImGui::InputFloat("Radius", &cylinder->radius, 0.01F, 0.1F, "%.3f");
-          ImGui::InputFloat("Length", &cylinder->length, 0.01F, 0.1F, "%.3f");
-
-          if (old_radius != cylinder->radius or
-              old_length != cylinder->length) {
+          if (ImGui::IsItemActivated()) {
+            snapshot_float_ = pre_r;
+          }
+          if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
             command_buffer_.add(std::make_shared<UpdateGeometryCylinderCommand>(
-                cylinder, cylinder->radius, cylinder->length, model, shader_));
+                cylinder, *snapshot_float_, cylinder->length, model, shader_));
+            snapshot_float_.reset();
+          }
+
+          float pre_l = cylinder->length;
+          ImGui::InputFloat("Length", &cylinder->length, 0.01F, 0.1F, "%.3f");
+          if (ImGui::IsItemActivated()) {
+            snapshot_float_ = pre_l;
+          }
+          if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
+            command_buffer_.add(std::make_shared<UpdateGeometryCylinderCommand>(
+                cylinder, cylinder->radius, *snapshot_float_, model, shader_));
+            snapshot_float_.reset();
           }
         }
         break;
       case 2:
         if (auto sphere = std::dynamic_pointer_cast<urdf::Sphere>(type)) {
-          float old_radius = sphere->radius;
+          float pre_r = sphere->radius;
           ImGui::InputFloat("Radius", &sphere->radius, 0.01F, 0.1F, "%.3f");
-          if (old_radius != sphere->radius)
+          if (ImGui::IsItemActivated()) {
+            snapshot_float_ = pre_r;
+          }
+          if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
             command_buffer_.add(std::make_shared<UpdateGeometrySphereCommand>(
-                sphere, sphere->radius, model, shader_));
+                sphere, *snapshot_float_, model, shader_));
+            snapshot_float_.reset();
+          }
         }
         break;
       case 3:
@@ -846,6 +908,45 @@ void App::menuGeometry(urdf::Geometry& geometry, Model& model) {
     }
     ImGui::TreePop();
   }
+}
+
+void App::inputFloatUndoable(const char* label, float& value,
+                              float step, float step_fast,
+                              const char* fmt,
+                              std::function<void()> post_action) {
+    float pre = value;
+    ImGui::InputFloat(label, &value, step, step_fast, fmt);
+    if (ImGui::IsItemActivated()) snapshot_float_ = pre;
+    if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<float>>(
+            value, *snapshot_float_, value, post_action));
+        snapshot_float_.reset();
+    }
+}
+
+void App::inputFloat3Undoable(const char* label, Vector3& vec,
+                               const char* fmt,
+                               std::function<void()> post_action) {
+    Vector3 pre = vec;
+    ImGui::InputFloat3(label, &vec.x, fmt);
+    if (ImGui::IsItemActivated()) snapshot_vec3_ = pre;
+    if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_vec3_) {
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<Vector3>>(
+            vec, *snapshot_vec3_, vec, post_action));
+        snapshot_vec3_.reset();
+    }
+}
+
+void App::inputTextUndoable(const char* label, std::string& str,
+                             std::function<void()> post_action) {
+    std::string pre = str;
+    ImGui::InputText(label, &str);
+    if (ImGui::IsItemActivated()) snapshot_string_ = pre;
+    if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_string_) {
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::string>>(
+            str, *snapshot_string_, str, post_action));
+        snapshot_string_.reset();
+    }
 }
 
 void App::cleanup()

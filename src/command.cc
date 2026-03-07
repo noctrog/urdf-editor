@@ -198,24 +198,6 @@ void CreateJointCommand::undo()
     new_joint_.reset();
 }
 
-ChangeNameCommand::ChangeNameCommand(const std::string& old_name,
-                                     const std::string& new_name,
-                                     std::string& target)
-    : old_name_(old_name), new_name_(new_name), target_(target)
-{
-
-}
-
-void ChangeNameCommand::execute()
-{
-    target_ = new_name_;
-}
-
-void ChangeNameCommand::undo()
-{
-    target_ = old_name_;
-}
-
 CreateNameCommand::CreateNameCommand(std::optional<std::string>& target)
     : target_(target)
 {
@@ -249,27 +231,6 @@ void CreateOriginCommand::undo()
 {
     target_ = std::nullopt;
     selected_origin_ = nullptr;
-}
-
-UpdateOriginCommand::UpdateOriginCommand(urdf::Origin& old_origin,
-                                         urdf::Origin& new_origin,
-                                         urdf::Origin& target,
-                                         urdf::RobotPtr& robot)
-    : old_origin_(old_origin), new_origin_(new_origin), target_(target), robot_(robot)
-{
-
-}
-
-void UpdateOriginCommand::execute()
-{
-    target_ = new_origin_;
-    robot_->forwardKinematics();
-}
-
-void UpdateOriginCommand::undo()
-{
-    target_ = old_origin_;
-    robot_->forwardKinematics();
 }
 
 CreateAxisCommand::CreateAxisCommand(std::optional<urdf::Axis>& target)
@@ -584,7 +545,7 @@ UpdateGeometryMeshCommand::UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>
                                                      const std::string& new_filename,
                                                      Model& model,
                                                      const Shader& shader)
-    : new_filename_(new_filename), mesh_(mesh), model_(model), shader_(shader)
+    : new_filename_(new_filename), old_filename_(mesh->filename), mesh_(mesh), model_(model), shader_(shader)
 {
 
 }
@@ -593,7 +554,6 @@ void UpdateGeometryMeshCommand::execute()
 {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
-    old_filename_ = mesh_->filename;
     mesh_->filename = new_filename_;
 
     UnloadModel(model_);
