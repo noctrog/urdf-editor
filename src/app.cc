@@ -44,6 +44,13 @@ constexpr float kGridLineColor = 0.75F;
 constexpr float kSidePanelWidth = 350.0F;
 constexpr float kRobotTableHeight = 300.0F;
 
+// Platform-aware modifier label for menu shortcuts
+#ifdef __APPLE__
+constexpr const char* kModName = "Cmd";
+#else
+constexpr const char* kModName = "Ctrl";
+#endif
+
 void drawGridZUp(int slices, float spacing) {
     int half_slices = slices / 2;
 
@@ -151,19 +158,12 @@ void App::update() {
     }
 
     //----------------------------------------------------------------------------------
-
-    // Input
-    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Z)) {
-        command_buffer_.undo();
-    }
-    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Y)) {
-        command_buffer_.redo();
-    }
 }
 
 void App::drawMenu() {
     rlImGuiBegin();
 
+    handleShortcuts();
     drawToolbar();
     drawSideMenu();
 
@@ -289,40 +289,74 @@ void App::draw() {
     EndDrawing();
 }
 
+void App::openFile() {
+    NFD::UniquePath out_path;
+    nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf,xml"}};
+    nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
+    if (result == NFD_OKAY) {
+        command_buffer_.add(std::make_shared<LoadRobotCommand>(out_path.get(), robot_, shader_));
+    } else if (result == NFD_CANCEL) {
+        LOG_F(INFO, "User pressed cancel.");
+    } else {
+        LOG_F(ERROR, "Error: %s", NFD::GetError());
+    }
+}
+
+void App::saveFile() {
+    NFD::UniquePath out_path;
+    nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf"}};
+    nfdresult_t result = NFD::SaveDialog(out_path, filter_item, 1);
+    if (result == NFD_OKAY) {
+        LOG_F(INFO, "Success! %s", out_path.get());
+        exportRobot(*robot_, out_path.get());
+    } else if (result == NFD_CANCEL) {
+        LOG_F(INFO, "User pressed cancel.");
+    } else {
+        LOG_F(ERROR, "Error: %s", NFD::GetError());
+    }
+}
+
+void App::handleShortcuts() {
+    ImGuiIO& io = ImGui::GetIO();
+    if (io.WantTextInput) return;
+
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_Z)) {
+        command_buffer_.undo();
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_Y)) {
+        command_buffer_.redo();
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiMod_Shift | ImGuiKey_Z)) {
+        command_buffer_.redo();
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_O)) {
+        openFile();
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_S)) {
+        if (robot_) saveFile();
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_N)) {
+        command_buffer_.add(std::make_shared<CreateRobotCommand>(robot_, shader_));
+    }
+    if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_J)) {
+        auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
+        if (link_node) {
+            command_buffer_.add(
+                std::make_shared<CreateJointCommand>("New Joint", link_node, robot_));
+        }
+    }
+}
+
 void App::drawToolbar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
-            // File menu items go here
-            if (ImGui::MenuItem("Open", "Ctrl+O")) {
-                NFD::UniquePath out_path;
-
-                // prepare filters for the dialog
-                nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf,xml"}};
-
-                // show the dialog
-                nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
-                if (result == NFD_OKAY) {
-                    command_buffer_.add(
-                        std::make_shared<LoadRobotCommand>(out_path.get(), robot_, shader_));
-                } else if (result == NFD_CANCEL) {
-                    LOG_F(INFO, "User pressed cancel.");
-                } else {
-                    LOG_F(ERROR, "Error: %s", NFD::GetError());
-                }
+            if (ImGui::MenuItem("Open", fmt::format("{}+O", kModName).c_str())) {
+                openFile();
             }
 
-            if (ImGui::MenuItem("Save", "Ctrl+S", false, static_cast<bool>(robot_))) {
-                NFD::UniquePath out_path;
-                nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf"}};
-                nfdresult_t result = NFD::SaveDialog(out_path, filter_item, 1);
-                if (result == NFD_OKAY) {
-                    LOG_F(INFO, "Success! %s", out_path.get());
-                    exportRobot(*robot_, out_path.get());
-                } else if (result == NFD_CANCEL) {
-                    LOG_F(INFO, "User pressed cancel.");
-                } else {
-                    LOG_F(ERROR, "Error: %s", NFD::GetError());
-                }
+            if (ImGui::MenuItem("Save", fmt::format("{}+S", kModName).c_str(), false,
+                                static_cast<bool>(robot_))) {
+                saveFile();
             }
             if (ImGui::MenuItem("Exit", "Alt+F4")) {
                 bWindowShouldClose_ = true;
@@ -332,18 +366,21 @@ void App::drawToolbar() {
         }
 
         if (ImGui::BeginMenu("Edit")) {
-            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, command_buffer_.canUndo())) {
+            if (ImGui::MenuItem("Undo", fmt::format("{}+Z", kModName).c_str(), false,
+                                command_buffer_.canUndo())) {
                 command_buffer_.undo();
             }
-            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, command_buffer_.canRedo())) {
+            if (ImGui::MenuItem("Redo", fmt::format("{}+Y", kModName).c_str(), false,
+                                command_buffer_.canRedo())) {
                 command_buffer_.redo();
             }
             ImGui::Separator();
-            if (ImGui::MenuItem("New Robot", "Ctrl+N")) {
+            if (ImGui::MenuItem("New Robot", fmt::format("{}+N", kModName).c_str())) {
                 command_buffer_.add(std::make_shared<CreateRobotCommand>(robot_, shader_));
             }
             auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
-            if (ImGui::MenuItem("Create Joint", "Ctrl+J", false, link_node != nullptr)) {
+            if (ImGui::MenuItem("Create Joint", fmt::format("{}+J", kModName).c_str(), false,
+                                link_node != nullptr)) {
                 command_buffer_.add(
                     std::make_shared<CreateJointCommand>("New Joint", link_node, robot_));
             }

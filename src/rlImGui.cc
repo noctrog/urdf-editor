@@ -293,56 +293,125 @@ void rlImGuiEndInitImGui()
     ReloadFonts();
 }
 
+// Map from a single character (as produced by glfwGetKeyName) to ImGuiKey.
+// Used to build layout-aware mappings for printable keys.
+static ImGuiKey CharToImGuiKey(char c)
+{
+    if (c >= 'a' && c <= 'z') return (ImGuiKey)(ImGuiKey_A + (c - 'a'));
+    if (c >= '0' && c <= '9') return (ImGuiKey)(ImGuiKey_0 + (c - '0'));
+    switch (c)
+    {
+        case '\'': return ImGuiKey_Apostrophe;
+        case ',':  return ImGuiKey_Comma;
+        case '-':  return ImGuiKey_Minus;
+        case '.':  return ImGuiKey_Period;
+        case '/':  return ImGuiKey_Slash;
+        case ';':  return ImGuiKey_Semicolon;
+        case '=':  return ImGuiKey_Equal;
+        case '[':  return ImGuiKey_LeftBracket;
+        case '\\': return ImGuiKey_Backslash;
+        case ']':  return ImGuiKey_RightBracket;
+        case '`':  return ImGuiKey_GraveAccent;
+        case ' ':  return ImGuiKey_Space;
+        default:   return ImGuiKey_None;
+    }
+}
+
+// US-QWERTY fallback mapping for printable keys (physical key → ImGuiKey).
+// Used when glfwGetKeyName returns NULL for a key.
+static const std::map<int, ImGuiKey> QwertyFallback = {
+    {KEY_APOSTROPHE, ImGuiKey_Apostrophe},
+    {KEY_COMMA,      ImGuiKey_Comma},
+    {KEY_MINUS,      ImGuiKey_Minus},
+    {KEY_PERIOD,     ImGuiKey_Period},
+    {KEY_SLASH,      ImGuiKey_Slash},
+    {KEY_ZERO,       ImGuiKey_0},
+    {KEY_ONE,        ImGuiKey_1},
+    {KEY_TWO,        ImGuiKey_2},
+    {KEY_THREE,      ImGuiKey_3},
+    {KEY_FOUR,       ImGuiKey_4},
+    {KEY_FIVE,       ImGuiKey_5},
+    {KEY_SIX,        ImGuiKey_6},
+    {KEY_SEVEN,      ImGuiKey_7},
+    {KEY_EIGHT,      ImGuiKey_8},
+    {KEY_NINE,       ImGuiKey_9},
+    {KEY_SEMICOLON,  ImGuiKey_Semicolon},
+    {KEY_EQUAL,      ImGuiKey_Equal},
+    {KEY_A,          ImGuiKey_A},
+    {KEY_B,          ImGuiKey_B},
+    {KEY_C,          ImGuiKey_C},
+    {KEY_D,          ImGuiKey_D},
+    {KEY_E,          ImGuiKey_E},
+    {KEY_F,          ImGuiKey_F},
+    {KEY_G,          ImGuiKey_G},
+    {KEY_H,          ImGuiKey_H},
+    {KEY_I,          ImGuiKey_I},
+    {KEY_J,          ImGuiKey_J},
+    {KEY_K,          ImGuiKey_K},
+    {KEY_L,          ImGuiKey_L},
+    {KEY_M,          ImGuiKey_M},
+    {KEY_N,          ImGuiKey_N},
+    {KEY_O,          ImGuiKey_O},
+    {KEY_P,          ImGuiKey_P},
+    {KEY_Q,          ImGuiKey_Q},
+    {KEY_R,          ImGuiKey_R},
+    {KEY_S,          ImGuiKey_S},
+    {KEY_T,          ImGuiKey_T},
+    {KEY_U,          ImGuiKey_U},
+    {KEY_V,          ImGuiKey_V},
+    {KEY_W,          ImGuiKey_W},
+    {KEY_X,          ImGuiKey_X},
+    {KEY_Y,          ImGuiKey_Y},
+    {KEY_Z,          ImGuiKey_Z},
+    {KEY_SPACE,      ImGuiKey_Space},
+    {KEY_LEFT_BRACKET,  ImGuiKey_LeftBracket},
+    {KEY_BACKSLASH,     ImGuiKey_Backslash},
+    {KEY_RIGHT_BRACKET, ImGuiKey_RightBracket},
+    {KEY_GRAVE,         ImGuiKey_GraveAccent},
+};
+
 static void SetupKeymap()
 {
     if (!RaylibKeyMap.empty())
         return;
 
-    // build up a map of raylib keys to ImGuiKeys
-    RaylibKeyMap[KEY_APOSTROPHE] = ImGuiKey_Apostrophe;
-    RaylibKeyMap[KEY_COMMA] = ImGuiKey_Comma;
-    RaylibKeyMap[KEY_MINUS] = ImGuiKey_Minus;
-    RaylibKeyMap[KEY_PERIOD] = ImGuiKey_Period;
-    RaylibKeyMap[KEY_SLASH] = ImGuiKey_Slash;
-    RaylibKeyMap[KEY_ZERO] = ImGuiKey_0;
-    RaylibKeyMap[KEY_ONE] = ImGuiKey_1;
-    RaylibKeyMap[KEY_TWO] = ImGuiKey_2;
-    RaylibKeyMap[KEY_THREE] = ImGuiKey_3;
-    RaylibKeyMap[KEY_FOUR] = ImGuiKey_4;
-    RaylibKeyMap[KEY_FIVE] = ImGuiKey_5;
-    RaylibKeyMap[KEY_SIX] = ImGuiKey_6;
-    RaylibKeyMap[KEY_SEVEN] = ImGuiKey_7;
-    RaylibKeyMap[KEY_EIGHT] = ImGuiKey_8;
-    RaylibKeyMap[KEY_NINE] = ImGuiKey_9;
-    RaylibKeyMap[KEY_SEMICOLON] = ImGuiKey_Semicolon;
-    RaylibKeyMap[KEY_EQUAL] = ImGuiKey_Equal;
-    RaylibKeyMap[KEY_A] = ImGuiKey_A;
-    RaylibKeyMap[KEY_B] = ImGuiKey_B;
-    RaylibKeyMap[KEY_C] = ImGuiKey_C;
-    RaylibKeyMap[KEY_D] = ImGuiKey_D;
-    RaylibKeyMap[KEY_E] = ImGuiKey_E;
-    RaylibKeyMap[KEY_F] = ImGuiKey_F;
-    RaylibKeyMap[KEY_G] = ImGuiKey_G;
-    RaylibKeyMap[KEY_H] = ImGuiKey_H;
-    RaylibKeyMap[KEY_I] = ImGuiKey_I;
-    RaylibKeyMap[KEY_J] = ImGuiKey_J;
-    RaylibKeyMap[KEY_K] = ImGuiKey_K;
-    RaylibKeyMap[KEY_L] = ImGuiKey_L;
-    RaylibKeyMap[KEY_M] = ImGuiKey_M;
-    RaylibKeyMap[KEY_N] = ImGuiKey_N;
-    RaylibKeyMap[KEY_O] = ImGuiKey_O;
-    RaylibKeyMap[KEY_P] = ImGuiKey_P;
-    RaylibKeyMap[KEY_Q] = ImGuiKey_Q;
-    RaylibKeyMap[KEY_R] = ImGuiKey_R;
-    RaylibKeyMap[KEY_S] = ImGuiKey_S;
-    RaylibKeyMap[KEY_T] = ImGuiKey_T;
-    RaylibKeyMap[KEY_U] = ImGuiKey_U;
-    RaylibKeyMap[KEY_V] = ImGuiKey_V;
-    RaylibKeyMap[KEY_W] = ImGuiKey_W;
-    RaylibKeyMap[KEY_X] = ImGuiKey_X;
-    RaylibKeyMap[KEY_Y] = ImGuiKey_Y;
-    RaylibKeyMap[KEY_Z] = ImGuiKey_Z;
-    RaylibKeyMap[KEY_SPACE] = ImGuiKey_Space;
+    // --- Printable keys: use glfwGetKeyName for layout awareness ---
+    // All physical keys that can produce printable characters.
+    static const int printableKeys[] = {
+        KEY_APOSTROPHE, KEY_COMMA, KEY_MINUS, KEY_PERIOD, KEY_SLASH,
+        KEY_ZERO, KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR,
+        KEY_FIVE, KEY_SIX, KEY_SEVEN, KEY_EIGHT, KEY_NINE,
+        KEY_SEMICOLON, KEY_EQUAL,
+        KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G,
+        KEY_H, KEY_I, KEY_J, KEY_K, KEY_L, KEY_M, KEY_N,
+        KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T, KEY_U,
+        KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z,
+        KEY_SPACE,
+        KEY_LEFT_BRACKET, KEY_BACKSLASH, KEY_RIGHT_BRACKET, KEY_GRAVE,
+    };
+
+    for (int key : printableKeys)
+    {
+#ifdef PLATFORM_DESKTOP
+        const char* name = glfwGetKeyName(key, 0);
+        if (name && name[0] != '\0' && name[1] == '\0')
+        {
+            // Single character returned — map based on actual layout output
+            ImGuiKey imgui_key = CharToImGuiKey(name[0]);
+            if (imgui_key != ImGuiKey_None)
+            {
+                RaylibKeyMap[(KeyboardKey)key] = imgui_key;
+                continue;
+            }
+        }
+#endif
+        // Fallback to US-QWERTY mapping
+        auto it = QwertyFallback.find(key);
+        if (it != QwertyFallback.end())
+            RaylibKeyMap[(KeyboardKey)key] = it->second;
+    }
+
+    // --- Non-printable keys: layout-independent, hardcoded ---
     RaylibKeyMap[KEY_ESCAPE] = ImGuiKey_Escape;
     RaylibKeyMap[KEY_ENTER] = ImGuiKey_Enter;
     RaylibKeyMap[KEY_TAB] = ImGuiKey_Tab;
@@ -383,10 +452,6 @@ static void SetupKeymap()
     RaylibKeyMap[KEY_RIGHT_ALT] = ImGuiKey_RightAlt;
     RaylibKeyMap[KEY_RIGHT_SUPER] = ImGuiKey_RightSuper;
     RaylibKeyMap[KEY_KB_MENU] = ImGuiKey_Menu;
-    RaylibKeyMap[KEY_LEFT_BRACKET] = ImGuiKey_LeftBracket;
-    RaylibKeyMap[KEY_BACKSLASH] = ImGuiKey_Backslash;
-    RaylibKeyMap[KEY_RIGHT_BRACKET] = ImGuiKey_RightBracket;
-    RaylibKeyMap[KEY_GRAVE] = ImGuiKey_GraveAccent;
     RaylibKeyMap[KEY_KP_0] = ImGuiKey_Keypad0;
     RaylibKeyMap[KEY_KP_1] = ImGuiKey_Keypad1;
     RaylibKeyMap[KEY_KP_2] = ImGuiKey_Keypad2;

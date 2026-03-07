@@ -32,6 +32,10 @@ class App {
     void drawNodeProperties();
     void drawSideMenu();
 
+    void handleShortcuts();
+    void openFile();
+    void saveFile();
+
     void originGui(urdf::Origin& origin);
 
     void menuName(std::optional<std::string>& name, const char* label = "");
