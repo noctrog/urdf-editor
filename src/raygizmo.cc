@@ -300,7 +300,7 @@ static void rgizmo_load(void) {
 
     // -------------------------------------------------------------------
     // Load picking fbo
-    PICKING_FBO = rlLoadFramebuffer(PICKING_FBO_WIDTH, PICKING_FBO_HEIGHT);
+    PICKING_FBO = rlLoadFramebuffer();
     if (!PICKING_FBO) {
         TraceLog(LOG_ERROR, "RAYGIZMO: Failed to create picking fbo");
         exit(1);
