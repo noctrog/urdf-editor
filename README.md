@@ -25,6 +25,33 @@ cmake --build build -j$(nproc)
 ./build/urdf-editor
 ```
 
+# Mesh Path Resolution
+
+URDF files often reference mesh geometries (`.dae`, `.stl`) using different path
+styles. The editor resolves them as follows:
+
+- **`package://` paths** (common in ROS): The editor strips the `package://`
+  prefix and walks up the directory tree from the URDF file's location until it
+  finds a `package.xml`. The remaining path is then resolved relative to that
+  package root. This means you don't need ROS installed — as long as your URDF
+  sits inside a standard ROS package directory structure, mesh paths will resolve
+  correctly.
+
+- **Relative paths**: Resolved relative to the directory containing the URDF
+  file.
+
+- **Absolute paths**: Used as-is.
+
+If you're working outside of a ROS workspace, the simplest approach is to place
+your mesh files relative to the URDF file and use relative paths in the
+`<mesh filename="..."/>` attribute. If your URDF uses `package://` paths, make
+sure there is a `package.xml` somewhere in the parent directories above the URDF
+file.
+
+You can also change the mesh file at runtime by clicking the `...` button next
+to the filename in the Geometry section and selecting a new `.dae` or `.stl`
+file.
+
 # Roadmap
 
 - [x] Load and save URDF files
