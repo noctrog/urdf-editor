@@ -32,15 +32,9 @@ cmake --build build -j$(nproc)
 - [x] GUI (with ImGui)
 - [x] Drag and drop link (GUI URDF Tree)
 - [x] 3D Gizmo for visual editing
+- [x] Mesh geometry support
 - [ ] Visualize joint movements
 - [ ] Material editor
-- [ ] Mesh geometry support (in the works through Assimp)
-
-# Known bugs
-
-- [x] Changing name of collision looses focus on the collision tab.
-- [x] When changing the geometry type, the forward kinematics have to be refreshed.
-- [ ] Crash when changing geometry type to Mesh.
 
 # Contributing
 
