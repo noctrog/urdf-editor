@@ -1,27 +1,21 @@
-#include <deque>
+#include <command.h>
+#include <fmt/format.h>
+#include <robot.h>
+
 #include <algorithm>
+#include <deque>
 #include <filesystem>
 #include <utility>
 
-#include <fmt/format.h>
-#include <robot.h>
-#include <command.h>
+CommandBuffer::CommandBuffer() : current_command_(0) {}
 
-CommandBuffer::CommandBuffer()
-    : current_command_(0)
-{
-
-}
-
-void CommandBuffer::add(CommandPtr command)
-{
+void CommandBuffer::add(CommandPtr command) {
     if (command) {
         new_commands_.emplace_back(std::move(command));
     }
 }
 
-void CommandBuffer::execute()
-{
+void CommandBuffer::execute() {
     if (new_commands_.empty()) return;
 
     // Delete all commands that were executed after the current command
@@ -40,62 +34,45 @@ void CommandBuffer::execute()
     new_commands_.clear();
 }
 
-void CommandBuffer::undo()
-{
+void CommandBuffer::undo() {
     if (executed_commands_.begin() + current_command_ == executed_commands_.begin()) return;
 
     (*(executed_commands_.begin() + current_command_ - 1))->undo();
     current_command_--;
 }
 
-void CommandBuffer::redo()
-{
+void CommandBuffer::redo() {
     if (executed_commands_.begin() + current_command_ == executed_commands_.end()) return;
 
     (*(executed_commands_.begin() + current_command_))->execute();
     current_command_++;
 }
 
-bool CommandBuffer::canUndo()
-{
+bool CommandBuffer::canUndo() {
     return executed_commands_.begin() + current_command_ != executed_commands_.begin();
 }
 
-bool CommandBuffer::canRedo()
-{
+bool CommandBuffer::canRedo() {
     return executed_commands_.begin() + current_command_ != executed_commands_.end();
 }
 
-CreateRobotCommand::CreateRobotCommand(std::shared_ptr<urdf::Robot>& robot,
-                                       const Shader& shader)
-    : robot_(robot), shader_(shader)
-{
+CreateRobotCommand::CreateRobotCommand(std::shared_ptr<urdf::Robot>& robot, const Shader& shader)
+    : robot_(robot), shader_(shader) {}
 
-}
-
-void CreateRobotCommand::execute()
-{
+void CreateRobotCommand::execute() {
     old_robot_ = robot_;
     urdf::LinkNodePtr root = std::make_shared<urdf::LinkNode>(urdf::Link("root"), nullptr);
     robot_ = std::make_shared<urdf::Robot>(root);
     robot_->setShader(shader_);
 }
 
-void CreateRobotCommand::undo()
-{
-    robot_ = old_robot_;
-}
+void CreateRobotCommand::undo() { robot_ = old_robot_; }
 
-LoadRobotCommand::LoadRobotCommand(std::string filename,
-                                   std::shared_ptr<urdf::Robot>& robot,
+LoadRobotCommand::LoadRobotCommand(std::string filename, std::shared_ptr<urdf::Robot>& robot,
                                    Shader& shader)
-    : filename_(std::move(filename)), robot_(robot), shader_(shader)
-{
+    : filename_(std::move(filename)), robot_(robot), shader_(shader) {}
 
-}
-
-void LoadRobotCommand::execute()
-{
+void LoadRobotCommand::execute() {
     if (future_robot_) {
         old_robot_ = robot_;
         robot_ = future_robot_;
@@ -108,8 +85,7 @@ void LoadRobotCommand::execute()
     }
 }
 
-void LoadRobotCommand::undo()
-{
+void LoadRobotCommand::undo() {
     future_robot_ = robot_;
     robot_ = old_robot_;
 }
@@ -117,16 +93,11 @@ void LoadRobotCommand::undo()
 JointChangeParentCommand::JointChangeParentCommand(const urdf::JointNodePtr& node,
                                                    const urdf::LinkNodePtr& new_parent,
                                                    const urdf::RobotPtr& robot)
-    : joint_(node), new_parent_(new_parent), old_parent_(node->parent), robot_(robot)
-{
+    : joint_(node), new_parent_(new_parent), old_parent_(node->parent), robot_(robot) {}
 
-}
-
-void JointChangeParentCommand::execute()
-{
-    old_position_ = std::find(joint_->parent->children.begin(),
-                              joint_->parent->children.end(),
-                              joint_);
+void JointChangeParentCommand::execute() {
+    old_position_ =
+        std::find(joint_->parent->children.begin(), joint_->parent->children.end(), joint_);
     joint_->parent->children.erase(old_position_);
     new_parent_->children.push_back(joint_);
 
@@ -135,11 +106,9 @@ void JointChangeParentCommand::execute()
     robot_->forwardKinematics();
 }
 
-void JointChangeParentCommand::undo()
-{
-    joint_->parent->children.erase(std::find(joint_->parent->children.begin(),
-                                             joint_->parent->children.end(),
-                                             joint_));
+void JointChangeParentCommand::undo() {
+    joint_->parent->children.erase(
+        std::find(joint_->parent->children.begin(), joint_->parent->children.end(), joint_));
     old_parent_->children.insert(old_position_, joint_);
 
     joint_->parent = old_parent_;
@@ -147,28 +116,25 @@ void JointChangeParentCommand::undo()
     robot_->forwardKinematics();
 }
 
-CreateJointCommand::CreateJointCommand(const char *joint_name,
-                                       urdf::LinkNodePtr& parent,
+CreateJointCommand::CreateJointCommand(const char* joint_name, urdf::LinkNodePtr& parent,
                                        urdf::RobotPtr& robot)
-    : joint_name_(joint_name), parent_(parent), robot_(robot)
-{
+    : joint_name_(joint_name), parent_(parent), robot_(robot) {}
 
-}
-
-void CreateJointCommand::execute()
-{
+void CreateJointCommand::execute() {
     // Get number of overlapping link and joint names
     int new_link_count = 0;
     int new_joint_count = 0;
-    std::deque<urdf::LinkNodePtr> deq { robot_->getRoot() };
+    std::deque<urdf::LinkNodePtr> deq{robot_->getRoot()};
     while (not deq.empty()) {
         const auto& current_link = deq.front();
         deq.pop_front();
 
-        new_link_count += static_cast<int>(current_link->link.name.find("New link") != std::string::npos);
+        new_link_count +=
+            static_cast<int>(current_link->link.name.find("New link") != std::string::npos);
 
         for (const auto& joint : current_link->children) {
-            new_joint_count += static_cast<int>(joint->joint.name.find(joint_name_) != std::string::npos);
+            new_joint_count +=
+                static_cast<int>(joint->joint.name.find(joint_name_) != std::string::npos);
             deq.push_back(joint->child);
         }
     }
@@ -176,196 +142,132 @@ void CreateJointCommand::execute()
     // Rename in case of name collisions
     if (new_joint_count > 0) joint_name_ += fmt::format(" {}", new_joint_count);
 
-    std::string new_link_name = (new_link_count == 0) ? "New link" : fmt::format("New link {}", new_link_count);
-    urdf::LinkNodePtr child = std::make_shared<urdf::LinkNode>(urdf::Link{ new_link_name }, nullptr);
+    std::string new_link_name =
+        (new_link_count == 0) ? "New link" : fmt::format("New link {}", new_link_count);
+    urdf::LinkNodePtr child = std::make_shared<urdf::LinkNode>(urdf::Link{new_link_name}, nullptr);
 
     // Create new joint and link
-    urdf::JointNodePtr new_joint = std::make_shared<urdf::JointNode>(urdf::JointNode {
-        urdf::Joint(joint_name_.c_str(), parent_->link.name.c_str(), new_link_name.c_str(), "fixed"),
-        parent_,
-        child});
+    urdf::JointNodePtr new_joint = std::make_shared<urdf::JointNode>(
+        urdf::JointNode{urdf::Joint(joint_name_.c_str(), parent_->link.name.c_str(),
+                                    new_link_name.c_str(), "fixed"),
+                        parent_, child});
 
     child->parent = new_joint;
 
     parent_->children.push_back(new_joint);
 }
 
-void CreateJointCommand::undo()
-{
-    parent_->children.erase(std::find(parent_->children.begin(),
-                                      parent_->children.end(),
-                                      new_joint_));
+void CreateJointCommand::undo() {
+    parent_->children.erase(
+        std::find(parent_->children.begin(), parent_->children.end(), new_joint_));
     new_joint_.reset();
 }
 
-CreateNameCommand::CreateNameCommand(std::optional<std::string>& target)
-    : target_(target)
-{
+CreateNameCommand::CreateNameCommand(std::optional<std::string>& target) : target_(target) {}
 
-}
+void CreateNameCommand::execute() { target_ = std::string(); }
 
-void CreateNameCommand::execute()
-{
-    target_ = std::string();
-}
-
-void CreateNameCommand::undo()
-{
-    target_ = std::nullopt;
-}
+void CreateNameCommand::undo() { target_ = std::nullopt; }
 
 CreateOriginCommand::CreateOriginCommand(std::optional<urdf::Origin>& target,
                                          urdf::OriginRawPtr& selected_origin)
-    : target_(target), selected_origin_(selected_origin)
-{
+    : target_(target), selected_origin_(selected_origin) {}
 
-}
-
-void CreateOriginCommand::execute()
-{
+void CreateOriginCommand::execute() {
     target_ = urdf::Origin();
     selected_origin_ = &*target_;
 }
 
-void CreateOriginCommand::undo()
-{
+void CreateOriginCommand::undo() {
     target_ = std::nullopt;
     selected_origin_ = nullptr;
 }
 
-CreateAxisCommand::CreateAxisCommand(std::optional<urdf::Axis>& target)
-    : target_(target)
-{
+CreateAxisCommand::CreateAxisCommand(std::optional<urdf::Axis>& target) : target_(target) {}
 
-}
+void CreateAxisCommand::execute() { target_ = urdf::Axis(); }
 
-void CreateAxisCommand::execute()
-{
-    target_ = urdf::Axis();
-}
-
-void CreateAxisCommand::undo()
-{
-    target_ = std::nullopt;
-}
+void CreateAxisCommand::undo() { target_ = std::nullopt; }
 
 CreateDynamicsCommand::CreateDynamicsCommand(std::optional<urdf::Dynamics>& target)
-    : target_(target)
-{
+    : target_(target) {}
 
-}
+void CreateDynamicsCommand::execute() { target_ = urdf::Dynamics(); }
 
-void CreateDynamicsCommand::execute()
-{
-    target_ = urdf::Dynamics();
-}
+void CreateDynamicsCommand::undo() { target_ = std::nullopt; }
 
-void CreateDynamicsCommand::undo()
-{
-    target_ = std::nullopt;
-}
+CreateLimitCommand::CreateLimitCommand(std::optional<urdf::Limit>& target) : target_(target) {}
 
-CreateLimitCommand::CreateLimitCommand(std::optional<urdf::Limit>& target)
-    : target_(target)
-{
+void CreateLimitCommand::execute() { target_ = urdf::Limit(0.0F, 1.0F, 1.0F, 1.0F); }
 
-}
-
-void CreateLimitCommand::execute()
-{
-    target_ = urdf::Limit(0.0F, 1.0F, 1.0F, 1.0F);
-}
-
-void CreateLimitCommand::undo()
-{
-    target_ = std::nullopt;
-}
+void CreateLimitCommand::undo() { target_ = std::nullopt; }
 
 ChangeGeometryCommand::ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry,
                                              urdf::GeometryTypePtr new_geometry,
-                                             urdf::Geometry& target,
-                                             Model& model,
+                                             urdf::Geometry& target, Model& model,
                                              urdf::RobotPtr& robot)
-    : old_geometry_(std::move(old_geometry)), new_geometry_(std::move(new_geometry)), target_(target), model_(model), robot_(robot)
-{
+    : old_geometry_(std::move(old_geometry)),
+      new_geometry_(std::move(new_geometry)),
+      target_(target),
+      model_(model),
+      robot_(robot) {}
 
-}
-
-void ChangeGeometryCommand::execute()
-{
+void ChangeGeometryCommand::execute() {
     target_.type = new_geometry_;
 
     UnloadModel(model_);
     model_ = target_.type->generateGeometry();
     // mesh_ = target_.type->generateGeometry();
     // model_.meshes[0] = mesh_; // TODO: might need to update material
-    
+
     robot_->forwardKinematics();
 }
 
-void ChangeGeometryCommand::undo()
-{
+void ChangeGeometryCommand::undo() {
     target_.type = old_geometry_;
 
     UnloadModel(model_);
     model_ = target_.type->generateGeometry();
     // model_.meshes[0] = mesh_;
-    
+
     robot_->forwardKinematics();
 }
 
 CreateInertialCommand::CreateInertialCommand(urdf::LinkNodePtr& link,
                                              urdf::OriginRawPtr& selected_origin)
-    : link_(link), selected_origin_(selected_origin)
-{
+    : link_(link), selected_origin_(selected_origin) {}
 
-}
-
-void CreateInertialCommand::execute()
-{
+void CreateInertialCommand::execute() {
     link_->link.inertial = urdf::Inertial();
     selected_origin_ = &link_->link.inertial->origin;
 }
 
-void CreateInertialCommand::undo()
-{
+void CreateInertialCommand::undo() {
     link_->link.inertial = std::nullopt;
     selected_origin_ = nullptr;
 }
 
-CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link,
-                                         const urdf::RobotPtr& robot,
+CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link, const urdf::RobotPtr& robot,
                                          const Shader& shader)
-    : link_(link), robot_(robot), shader_(shader)
-{
+    : link_(link), robot_(robot), shader_(shader) {}
 
-}
-
-void CreateVisualCommand::execute()
-{
-    link_->link.visual = urdf::Visual{
-        std::nullopt, std::nullopt,
-        urdf::Geometry{std::make_shared<urdf::Box>()},
-        std::nullopt};
+void CreateVisualCommand::execute() {
+    link_->link.visual = urdf::Visual{std::nullopt, std::nullopt,
+                                      urdf::Geometry{std::make_shared<urdf::Box>()}, std::nullopt};
     link_->visual_model = link_->link.visual->geometry.type->generateGeometry();
     link_->visual_model.materials[0].shader = shader_;
     robot_->forwardKinematics();
 }
 
-void CreateVisualCommand::undo()
-{
+void CreateVisualCommand::undo() {
     UnloadModel(link_->visual_model);
     link_->link.visual = std::nullopt;
 }
 
 DeleteVisualCommand::DeleteVisualCommand(urdf::LinkNodePtr& link, urdf::RobotPtr& robot)
-    : link_(link), robot_(robot)
-{
+    : link_(link), robot_(robot) {}
 
-}
-
-void DeleteVisualCommand::execute()
-{
+void DeleteVisualCommand::execute() {
     old_visual_ = *link_->link.visual;
     shader_ = link_->visual_model.materials[0].shader;
 
@@ -373,8 +275,7 @@ void DeleteVisualCommand::execute()
     link_->link.visual = std::nullopt;
 }
 
-void DeleteVisualCommand::undo()
-{
+void DeleteVisualCommand::undo() {
     link_->link.visual = old_visual_;
     old_visual_ = urdf::Visual();
     UnloadModel(link_->visual_model);
@@ -384,55 +285,37 @@ void DeleteVisualCommand::undo()
     robot_->updateMaterial(link_);
 }
 
-AddCollisionCommand::AddCollisionCommand(urdf::LinkNodePtr& link)
-    : link_(link)
-{
+AddCollisionCommand::AddCollisionCommand(urdf::LinkNodePtr& link) : link_(link) {}
 
-}
-
-void AddCollisionCommand::execute()
-{
+void AddCollisionCommand::execute() {
     link_->addCollision();
     if (link_->parent and link_->parent->parent) {
         urdf::Robot::forwardKinematics(link_->parent->parent);
     }
 }
 
-void AddCollisionCommand::undo()
-{
-    link_->deleteCollision(link_->link.collision.size() - 1);
-}
+void AddCollisionCommand::undo() { link_->deleteCollision(link_->link.collision.size() - 1); }
 
 DeleteCollisionCommand::DeleteCollisionCommand(urdf::LinkNodePtr& link, int i)
-    : link_(link), i_(i)
-{
+    : link_(link), i_(i) {}
 
-}
-
-void DeleteCollisionCommand::execute()
-{
+void DeleteCollisionCommand::execute() {
     old_collision_ = link_->link.collision[i_];
     link_->deleteCollision(i_);
 }
 
-void DeleteCollisionCommand::undo()
-{
+void DeleteCollisionCommand::undo() {
     link_->link.collision.insert(link_->link.collision.begin() + i_, old_collision_);
     link_->collision_models.insert(link_->collision_models.begin() + i_,
                                    old_collision_.geometry.type->generateGeometry());
 }
 
 UpdateGeometryBoxCommand::UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& box,
-                                                   const Vector3& old_size,
-                                                   Model& model,
+                                                   const Vector3& old_size, Model& model,
                                                    const Shader& shader)
-    : new_size_(box->size), old_size_(old_size), box_(box), model_(model), shader_(shader)
-{
+    : new_size_(box->size), old_size_(old_size), box_(box), model_(model), shader_(shader) {}
 
-}
-
-void UpdateGeometryBoxCommand::execute()
-{
+void UpdateGeometryBoxCommand::execute() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     box_->size = new_size_;
@@ -446,8 +329,7 @@ void UpdateGeometryBoxCommand::execute()
     model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
 }
 
-void UpdateGeometryBoxCommand::undo()
-{
+void UpdateGeometryBoxCommand::undo() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     box_->size = old_size_;
@@ -461,19 +343,18 @@ void UpdateGeometryBoxCommand::undo()
     model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
 }
 
-UpdateGeometryCylinderCommand::UpdateGeometryCylinderCommand(std::shared_ptr<urdf::Cylinder>& cylinder,
-                                                             const float old_radius,
-                                                             const float old_height,
-                                                             Model& model,
-                                                             const Shader& shader)
-    : new_radius_(cylinder->radius), new_length_(cylinder->length), old_radius_(old_radius), old_length_(old_height),
-      cylinder_(cylinder), model_(model), shader_(shader)
-{
+UpdateGeometryCylinderCommand::UpdateGeometryCylinderCommand(
+    std::shared_ptr<urdf::Cylinder>& cylinder, const float old_radius, const float old_height,
+    Model& model, const Shader& shader)
+    : new_radius_(cylinder->radius),
+      new_length_(cylinder->length),
+      old_radius_(old_radius),
+      old_length_(old_height),
+      cylinder_(cylinder),
+      model_(model),
+      shader_(shader) {}
 
-}
-
-void UpdateGeometryCylinderCommand::execute()
-{
+void UpdateGeometryCylinderCommand::execute() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     cylinder_->radius = new_radius_;
@@ -488,8 +369,7 @@ void UpdateGeometryCylinderCommand::execute()
     model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
 }
 
-void UpdateGeometryCylinderCommand::undo()
-{
+void UpdateGeometryCylinderCommand::undo() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     cylinder_->radius = old_radius_;
@@ -505,16 +385,15 @@ void UpdateGeometryCylinderCommand::undo()
 }
 
 UpdateGeometrySphereCommand::UpdateGeometrySphereCommand(std::shared_ptr<urdf::Sphere>& sphere,
-                                                         const float old_radius,
-                                                         Model& model,
+                                                         const float old_radius, Model& model,
                                                          const Shader& shader)
-    : new_radius_(sphere->radius), old_radius_(old_radius), sphere_(sphere), model_(model), shader_(shader)
-{
+    : new_radius_(sphere->radius),
+      old_radius_(old_radius),
+      sphere_(sphere),
+      model_(model),
+      shader_(shader) {}
 
-}
-
-void UpdateGeometrySphereCommand::execute()
-{
+void UpdateGeometrySphereCommand::execute() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     sphere_->radius = new_radius_;
@@ -528,8 +407,7 @@ void UpdateGeometrySphereCommand::execute()
     model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
 }
 
-void UpdateGeometrySphereCommand::undo()
-{
+void UpdateGeometrySphereCommand::undo() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
 
@@ -542,16 +420,15 @@ void UpdateGeometrySphereCommand::undo()
 }
 
 UpdateGeometryMeshCommand::UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>& mesh,
-                                                     const std::string& new_filename,
-                                                     Model& model,
+                                                     const std::string& new_filename, Model& model,
                                                      const Shader& shader)
-    : new_filename_(new_filename), old_filename_(mesh->filename), mesh_(mesh), model_(model), shader_(shader)
-{
+    : new_filename_(new_filename),
+      old_filename_(mesh->filename),
+      mesh_(mesh),
+      model_(model),
+      shader_(shader) {}
 
-}
-
-void UpdateGeometryMeshCommand::execute()
-{
+void UpdateGeometryMeshCommand::execute() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     mesh_->filename = new_filename_;
@@ -567,8 +444,7 @@ void UpdateGeometryMeshCommand::execute()
     model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
 }
 
-void UpdateGeometryMeshCommand::undo()
-{
+void UpdateGeometryMeshCommand::undo() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     mesh_->filename = old_filename_;
@@ -580,4 +456,3 @@ void UpdateGeometryMeshCommand::undo()
     model_.transform = t;
     model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
 }
-

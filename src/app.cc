@@ -1,944 +1,921 @@
 #include <app.h>
+#include <fmt/format.h>
+#include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
+#include <raygizmo.h>
+#include <raymath.h>
+#include <rcamera.h>
+#include <rlImGui.h>
+#include <rlgl.h>
+#include <rlights.h>
+#include <robot.h>
 
 #include <array>
 #include <functional>
-
-#include <raygizmo.h>
-
-#include <raymath.h>
-#include <rcamera.h>
-#include <rlgl.h>
-#include <rlights.h>
-
-#include <imgui.h>
-#include <misc/cpp/imgui_stdlib.h>
-
-#include <rlImGui.h>
-
-#include <fmt/format.h>
 #include <loguru.hpp>
+#include <nfd.hpp>
 #include <pugixml.hpp>
 
-#include <nfd.hpp>
+// Camera control speeds
+constexpr float kCameraRotSpeed = 0.003F;
+constexpr float kCameraMoveSpeed = 0.01F;
+constexpr float kCameraZoomSpeed = 1.0F;
 
-#include <robot.h>
+// Window defaults
+constexpr int kDefaultScreenWidth = 1200;
+constexpr int kDefaultScreenHeight = 800;
+constexpr int kTargetFps = 120;
+
+// Lighting
+constexpr float kAmbientLightIntensity = 3.0F;
+constexpr float kDefaultCameraFov = 45.0F;
+const Vector3 kDefaultCameraPosition = {0.0F, 1.5F, 2.5F};
+const Vector3 kDefaultCameraTarget = {0.0F, 0.0F, 0.0F};
+const Vector3 kDefaultCameraUp = {0.0F, 0.0F, 1.0F};
+const Vector3 kLightDirection = {1.0F, 1.0F, 1.0F};
+
+// Grid
+constexpr int kGridSlices = 10;
+constexpr float kGridSpacing = 1.0F;
+constexpr float kGridAxisColor = 0.5F;
+constexpr float kGridLineColor = 0.75F;
+
+// UI
+constexpr float kSidePanelWidth = 350.0F;
+constexpr float kRobotTableHeight = 300.0F;
 
 void drawGridZUp(int slices, float spacing) {
-  int half_slices = slices / 2;
+    int half_slices = slices / 2;
 
-  rlBegin(RL_LINES);
-  for (int i = -half_slices; i <= half_slices; i++) {
-    if (i == 0) {
-      rlColor3f(0.5F, 0.5F, 0.5F);
-      rlColor3f(0.5F, 0.5F, 0.5F);
-      rlColor3f(0.5F, 0.5F, 0.5F);
-      rlColor3f(0.5F, 0.5F, 0.5F);
-    } else {
-      rlColor3f(0.75F, 0.75F, 0.75F);
-      rlColor3f(0.75F, 0.75F, 0.75F);
-      rlColor3f(0.75F, 0.75F, 0.75F);
-      rlColor3f(0.75F, 0.75F, 0.75F);
+    rlBegin(RL_LINES);
+    for (int i = -half_slices; i <= half_slices; i++) {
+        if (i == 0) {
+            rlColor3f(kGridAxisColor, kGridAxisColor, kGridAxisColor);
+            rlColor3f(kGridAxisColor, kGridAxisColor, kGridAxisColor);
+            rlColor3f(kGridAxisColor, kGridAxisColor, kGridAxisColor);
+            rlColor3f(kGridAxisColor, kGridAxisColor, kGridAxisColor);
+        } else {
+            rlColor3f(kGridLineColor, kGridLineColor, kGridLineColor);
+            rlColor3f(kGridLineColor, kGridLineColor, kGridLineColor);
+            rlColor3f(kGridLineColor, kGridLineColor, kGridLineColor);
+            rlColor3f(kGridLineColor, kGridLineColor, kGridLineColor);
+        }
+
+        rlVertex3f(static_cast<float>(i) * spacing, static_cast<float>(-half_slices) * spacing,
+                   0.0F);
+        rlVertex3f(static_cast<float>(i) * spacing, static_cast<float>(half_slices) * spacing,
+                   0.0F);
+
+        rlVertex3f(static_cast<float>(-half_slices) * spacing, static_cast<float>(i) * spacing,
+                   0.0F);
+        rlVertex3f(static_cast<float>(half_slices) * spacing, static_cast<float>(i) * spacing,
+                   0.0F);
     }
-
-    rlVertex3f(static_cast<float>(i) * spacing,
-               static_cast<float>(-half_slices) * spacing, 0.0F);
-    rlVertex3f(static_cast<float>(i) * spacing,
-               static_cast<float>(half_slices) * spacing, 0.0F);
-
-    rlVertex3f(static_cast<float>(-half_slices) * spacing,
-               static_cast<float>(i) * spacing, 0.0F);
-    rlVertex3f(static_cast<float>(half_slices) * spacing,
-               static_cast<float>(i) * spacing, 0.0F);
-  }
-  rlEnd();
+    rlEnd();
 }
-
-#define CAMERA_ROT_SPEED 0.003f
-#define CAMERA_MOVE_SPEED 0.01f
-#define CAMERA_ZOOM_SPEED 1.0f
 
 static void updateCamera(Camera3D *camera) {
-  bool is_mmb_down = IsMouseButtonDown(MOUSE_BUTTON_MIDDLE);
-  bool is_shift_down = IsKeyDown(KEY_LEFT_SHIFT);
-  Vector2 mouse_delta = GetMouseDelta();
+    bool is_mmb_down = IsMouseButtonDown(MOUSE_BUTTON_MIDDLE);
+    bool is_shift_down = IsKeyDown(KEY_LEFT_SHIFT);
+    Vector2 mouse_delta = GetMouseDelta();
 
-  if (is_mmb_down && is_shift_down) {
-    CameraMoveRight(camera, -CAMERA_MOVE_SPEED * mouse_delta.x, true);
+    if (is_mmb_down && is_shift_down) {
+        CameraMoveRight(camera, -kCameraMoveSpeed * mouse_delta.x, true);
 
-    Vector3 right = GetCameraRight(camera);
-    Vector3 up = Vector3CrossProduct(
-        Vector3Subtract(camera->position, camera->target), right);
-    up = Vector3Scale(Vector3Normalize(up), -CAMERA_MOVE_SPEED * mouse_delta.y);
-    camera->position = Vector3Add(camera->position, up);
-    camera->target = Vector3Add(camera->target, up);
-  } else if (is_mmb_down) {
-    CameraYaw(camera, -CAMERA_ROT_SPEED * mouse_delta.x, true);
-    CameraPitch(camera, -CAMERA_ROT_SPEED * mouse_delta.y, true, true, false);
-  }
+        Vector3 right = GetCameraRight(camera);
+        Vector3 up = Vector3CrossProduct(Vector3Subtract(camera->position, camera->target), right);
+        up = Vector3Scale(Vector3Normalize(up), -kCameraMoveSpeed * mouse_delta.y);
+        camera->position = Vector3Add(camera->position, up);
+        camera->target = Vector3Add(camera->target, up);
+    } else if (is_mmb_down) {
+        CameraYaw(camera, -kCameraRotSpeed * mouse_delta.x, true);
+        CameraPitch(camera, -kCameraRotSpeed * mouse_delta.y, true, true, false);
+    }
 
-  CameraMoveToTarget(camera, -GetMouseWheelMove() * CAMERA_ZOOM_SPEED);
+    CameraMoveToTarget(camera, -GetMouseWheelMove() * kCameraZoomSpeed);
 }
 
-App::App(int argc, char *argv[])
-    : bShowGrid_(true), selected_link_origin_{nullptr} {
-  loguru::init(argc, argv);
+App::App(int argc, char *argv[]) : bShowGrid_(true), selected_link_origin_{nullptr} {
+    loguru::init(argc, argv);
 }
 
 void App::run() {
-  setup();
+    setup();
 
-  while (not bWindowShouldClose_) {
-    update();
-    draw();
-    bWindowShouldClose_ |= WindowShouldClose();
-  }
+    while (not bWindowShouldClose_) {
+        update();
+        draw();
+        bWindowShouldClose_ |= WindowShouldClose();
+    }
 
-  cleanup();
+    cleanup();
 }
 
 void App::setup() {
-  const int screen_width = 1200;
-  const int screen_height = 800;
-  SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE |
-                 FLAG_WINDOW_HIGHDPI);
-  InitWindow(screen_width, screen_height, "URDF Editor");
+    SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
+    InitWindow(kDefaultScreenWidth, kDefaultScreenHeight, "URDF Editor");
 
-  shader_ = LoadShader("./resources/shaders/lighting.vs",
-                       "./resources/shaders/lighting.fs");
-  shader_.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader_, "viewPos");
-  shader_.locs[SHADER_LOC_COLOR_DIFFUSE] =
-      GetShaderLocation(shader_, "colDiffuse");
-  shader_.locs[SHADER_LOC_COLOR_AMBIENT] =
-      GetShaderLocation(shader_, "ambient");
+    shader_ = LoadShader("./resources/shaders/lighting.vs", "./resources/shaders/lighting.fs");
+    shader_.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader_, "viewPos");
+    shader_.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader_, "colDiffuse");
+    shader_.locs[SHADER_LOC_COLOR_AMBIENT] = GetShaderLocation(shader_, "ambient");
 
-  SetShaderValue(shader_, shader_.locs[SHADER_LOC_COLOR_AMBIENT],
-                 std::array<float, 4>({3.0F, 3.0F, 3.0F, 1.0F}).data(),
-                 SHADER_UNIFORM_VEC4);
+    SetShaderValue(shader_, shader_.locs[SHADER_LOC_COLOR_AMBIENT],
+                   std::array<float, 4>({kAmbientLightIntensity, kAmbientLightIntensity,
+                                         kAmbientLightIntensity, 1.0F})
+                       .data(),
+                   SHADER_UNIFORM_VEC4);
 
-  // Create lights
-  std::array<Light, MAX_LIGHTS> lights{};
-  lights[0] = CreateLight(LIGHT_DIRECTIONAL, Vector3{1, 1, 1}, Vector3Zero(),
-                          WHITE, shader_);
+    // Create lights
+    std::array<Light, MAX_LIGHTS> lights{};
+    lights[0] = CreateLight(LIGHT_DIRECTIONAL, kLightDirection, Vector3Zero(), WHITE, shader_);
 
-  // Define the camera to look into our 3d world
-  camera_ = {
-      {0.0F, 1.5F, 2.5F}, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, 45.0F, 0};
-  bWindowShouldClose_ = false;
+    // Define the camera to look into our 3d world
+    camera_ = {kDefaultCameraPosition, kDefaultCameraTarget, kDefaultCameraUp, kDefaultCameraFov,
+               0};
+    bWindowShouldClose_ = false;
 
-  gizmo_ = rgizmo_create();
+    gizmo_ = rgizmo_create();
 
-  SetTargetFPS(120);
-  rlImGuiSetup(true);
+    SetTargetFPS(kTargetFps);
+    rlImGuiSetup(true);
 }
 
 void App::update() {
-  command_buffer_.execute();
+    command_buffer_.execute();
 
-  // Update
-  ImGuiIO &io = ImGui::GetIO();
-  if (not io.WantCaptureMouse) {
-    updateCamera(&camera_);
-  }
+    // Update
+    ImGuiIO &io = ImGui::GetIO();
+    if (not io.WantCaptureMouse) {
+        updateCamera(&camera_);
+    }
 
-  //----------------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------
 
-  // Input
-  if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Z)) {
-    command_buffer_.undo();
-  }
-  if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Y)) {
-    command_buffer_.redo();
-  }
+    // Input
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Z)) {
+        command_buffer_.undo();
+    }
+    if (IsKeyDown(KEY_LEFT_CONTROL) && IsKeyPressed(KEY_Y)) {
+        command_buffer_.redo();
+    }
 }
 
 void App::drawMenu() {
-  rlImGuiBegin();
+    rlImGuiBegin();
 
-  drawToolbar();
-  drawSideMenu();
+    drawToolbar();
+    drawSideMenu();
 
-  rlImGuiEnd();
+    rlImGuiEnd();
 }
 
 void App::drawScene() {
-  ClearBackground(LIGHTGRAY);
+    ClearBackground(LIGHTGRAY);
 
-  // TODO(ramon): links can't be selected. Select instead visual, collision,
-  // inertial and modify it's origin, if it exists. const auto selected_link =
-  const auto selected_link =
-      std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
-  if (selected_link and selected_link_origin_) {
-    // Create matrix w_T_o
-    const Matrix &w_t_l = selected_link->w_T_l;
-    Matrix l_t_o = selected_link_origin_->toMatrix();
-    Matrix w_t_o = MatrixMultiply(l_t_o, w_t_l);
+    // TODO(ramon): links can't be selected. Select instead visual, collision,
+    // inertial and modify it's origin, if it exists. const auto selected_link =
+    const auto selected_link = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
+    if (selected_link and selected_link_origin_) {
+        // Compose world-frame origin transform: w_T_o = w_T_l * l_T_o
+        const Matrix &w_t_l = selected_link->w_T_l;
+        Matrix l_t_o = selected_link_origin_->toMatrix();
+        Matrix w_t_o = MatrixMultiply(l_t_o, w_t_l);
 
-    const Vector3 position{urdf::PosFromMatrix(w_t_o)};
-    if (rgizmo_update(&gizmo_, camera_, position)) {
-      // Update matrix with gizmo
-      w_t_o = MatrixMultiply(w_t_o, rgizmo_get_transform(gizmo_, position));
+        const Vector3 position{urdf::PosFromMatrix(w_t_o)};
+        if (rgizmo_update(&gizmo_, camera_, position)) {
+            // Apply gizmo delta in world space, then recover local origin:
+            // l_T_o = w_T_o' * inv(w_T_l)
+            w_t_o = MatrixMultiply(w_t_o, rgizmo_get_transform(gizmo_, position));
+            l_t_o = MatrixMultiply(w_t_o, MatrixInvert(w_t_l));
 
-      // Get matrix l_t_o
-      l_t_o = MatrixMultiply(w_t_o, MatrixInvert(w_t_l));
+            // Save new origin
+            selected_link_origin_->xyz.x = l_t_o.m12;
+            selected_link_origin_->xyz.y = l_t_o.m13;
+            selected_link_origin_->xyz.z = l_t_o.m14;
+            selected_link_origin_->rpy = urdf::MatrixToXYZ(l_t_o);
 
-      // Save new origin
-      selected_link_origin_->xyz.x = l_t_o.m12;
-      selected_link_origin_->xyz.y = l_t_o.m13;
-      selected_link_origin_->xyz.z = l_t_o.m14;
-      selected_link_origin_->rpy = urdf::MatrixToXYZ(l_t_o);
-
-      // Update the robot
-      robot_->forwardKinematics();
+            // Update the robot
+            robot_->forwardKinematics();
+        }
     }
-  }
 
-  const auto selected_joint =
-      std::dynamic_pointer_cast<urdf::JointNode>(selected_node_);
-  if (selected_joint and selected_joint->joint.origin) {
-    urdf::Origin &joint_origin = *selected_joint->joint.origin;
+    const auto selected_joint = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_);
+    if (selected_joint and selected_joint->joint.origin) {
+        urdf::Origin &joint_origin = *selected_joint->joint.origin;
 
-    // Create matrix w_T_j
-    const Matrix &w_t_p = selected_joint->parent->w_T_l;
-    Matrix p_t_j = joint_origin.toMatrix();
-    Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
+        // Compose world-frame joint transform: w_T_j = w_T_parent * p_T_j
+        const Matrix &w_t_p = selected_joint->parent->w_T_l;
+        Matrix p_t_j = joint_origin.toMatrix();
+        Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
 
-    const Vector3 position{urdf::PosFromMatrix(w_t_j)};
-    if (rgizmo_update(&gizmo_, camera_, position)) {
-      // Update matrix with gizmo
-      w_t_j = MatrixMultiply(w_t_j, rgizmo_get_transform(gizmo_, position));
+        const Vector3 position{urdf::PosFromMatrix(w_t_j)};
+        if (rgizmo_update(&gizmo_, camera_, position)) {
+            // Apply gizmo delta in world space, then recover local joint origin:
+            // p_T_j = w_T_j' * inv(w_T_parent)
+            w_t_j = MatrixMultiply(w_t_j, rgizmo_get_transform(gizmo_, position));
+            p_t_j = MatrixMultiply(w_t_j, MatrixInvert(w_t_p));
 
-      // Get matrix p_T_j
-      p_t_j = MatrixMultiply(w_t_j, MatrixInvert(w_t_p));
+            // Save new origin {xyz, rpy}
+            joint_origin.xyz.x = p_t_j.m12;
+            joint_origin.xyz.y = p_t_j.m13;
+            joint_origin.xyz.z = p_t_j.m14;
+            joint_origin.rpy = urdf::MatrixToXYZ(p_t_j);
 
-      // Save new origin {xyz, rpy}
-      joint_origin.xyz.x = p_t_j.m12;
-      joint_origin.xyz.y = p_t_j.m13;
-      joint_origin.xyz.z = p_t_j.m14;
-      joint_origin.rpy = urdf::MatrixToXYZ(p_t_j);
-
-      // Update the robot
-      robot_->forwardKinematics();
+            // Update the robot
+            robot_->forwardKinematics();
+        }
     }
-  }
 
-  bool was_active = prev_gizmo_state_ >= RGIZMO_STATE_ACTIVE;
-  bool is_active = gizmo_.state >= RGIZMO_STATE_ACTIVE;
+    bool was_active = prev_gizmo_state_ >= RGIZMO_STATE_ACTIVE;
+    bool is_active = gizmo_.state >= RGIZMO_STATE_ACTIVE;
 
-  if (!was_active && is_active) {
-    // Drag just started — snapshot the origin
-    if (selected_link && selected_link_origin_) {
-      gizmo_drag_origin_ = selected_link_origin_;
-      snapshot_gizmo_origin_ = *selected_link_origin_;
-    } else if (selected_joint && selected_joint->joint.origin) {
-      gizmo_drag_origin_ = &(*selected_joint->joint.origin);
-      snapshot_gizmo_origin_ = *selected_joint->joint.origin;
+    if (!was_active && is_active) {
+        // Drag just started — snapshot the origin
+        if (selected_link && selected_link_origin_) {
+            gizmo_drag_origin_ = selected_link_origin_;
+            snapshot_gizmo_origin_ = *selected_link_origin_;
+        } else if (selected_joint && selected_joint->joint.origin) {
+            gizmo_drag_origin_ = &(*selected_joint->joint.origin);
+            snapshot_gizmo_origin_ = *selected_joint->joint.origin;
+        }
     }
-  }
 
-  if (was_active && !is_active && gizmo_drag_origin_ && snapshot_gizmo_origin_) {
-    // Drag just ended — create undo command
-    auto fk = [this]() { robot_->forwardKinematics(); };
-    command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Origin>>(
-        *gizmo_drag_origin_, *snapshot_gizmo_origin_,
-        *gizmo_drag_origin_, fk));
-    gizmo_drag_origin_ = nullptr;
-    snapshot_gizmo_origin_.reset();
-  }
+    if (was_active && !is_active && gizmo_drag_origin_ && snapshot_gizmo_origin_) {
+        // Drag just ended — create undo command
+        auto fk = [this]() { robot_->forwardKinematics(); };
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Origin>>(
+            *gizmo_drag_origin_, *snapshot_gizmo_origin_, *gizmo_drag_origin_, fk));
+        gizmo_drag_origin_ = nullptr;
+        snapshot_gizmo_origin_.reset();
+    }
 
-  prev_gizmo_state_ = gizmo_.state;
+    prev_gizmo_state_ = gizmo_.state;
 
-  BeginMode3D(camera_);
+    BeginMode3D(camera_);
 
-  if (bShowGrid_)
-    drawGridZUp(10, 1.0F);
+    if (bShowGrid_) drawGridZUp(kGridSlices, kGridSpacing);
 
-  if (robot_) {
-    const auto hovered_node =
-        std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
-    robot_->draw(hovered_node, selected_link);
-  }
+    if (robot_) {
+        const auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
+        robot_->draw(hovered_node, selected_link);
+    }
 
-  if (selected_link and selected_link_origin_) {
-    const Matrix &w_t_l = selected_link->w_T_l;
-    Matrix l_t_o = selected_link_origin_->toMatrix();
-    Matrix w_t_o = MatrixMultiply(l_t_o, w_t_l);
+    if (selected_link and selected_link_origin_) {
+        const Matrix &w_t_l = selected_link->w_T_l;
+        Matrix l_t_o = selected_link_origin_->toMatrix();
+        Matrix w_t_o = MatrixMultiply(l_t_o, w_t_l);
 
-    const Vector3 position{urdf::PosFromMatrix(w_t_o)};
-    rgizmo_draw(gizmo_, camera_, position);
-  }
+        const Vector3 position{urdf::PosFromMatrix(w_t_o)};
+        rgizmo_draw(gizmo_, camera_, position);
+    }
 
-  if (selected_joint and selected_joint->joint.origin) {
-    const Matrix &w_t_p = selected_joint->parent->w_T_l;
-    const Matrix p_t_j = selected_joint->joint.origin->toMatrix();
-    const Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
+    if (selected_joint and selected_joint->joint.origin) {
+        const Matrix &w_t_p = selected_joint->parent->w_T_l;
+        const Matrix p_t_j = selected_joint->joint.origin->toMatrix();
+        const Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
 
-    const Vector3 position{urdf::PosFromMatrix(w_t_j)};
-    rgizmo_draw(gizmo_, camera_, position);
-  }
+        const Vector3 position{urdf::PosFromMatrix(w_t_j)};
+        rgizmo_draw(gizmo_, camera_, position);
+    }
 
-  EndMode3D();
+    EndMode3D();
 }
 
 void App::draw() {
-  BeginDrawing();
-  drawScene(); // Draw to render texture
-  drawMenu();  // Draw to screen
-  EndDrawing();
+    BeginDrawing();
+    drawScene();  // Draw to render texture
+    drawMenu();   // Draw to screen
+    EndDrawing();
 }
 
 void App::drawToolbar() {
-  if (ImGui::BeginMainMenuBar()) {
-    if (ImGui::BeginMenu("File")) {
-      // File menu items go here
-      if (ImGui::MenuItem("Open", "Ctrl+O")) {
-        NFD::UniquePath out_path;
+    if (ImGui::BeginMainMenuBar()) {
+        if (ImGui::BeginMenu("File")) {
+            // File menu items go here
+            if (ImGui::MenuItem("Open", "Ctrl+O")) {
+                NFD::UniquePath out_path;
 
-        // prepare filters for the dialog
-        nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf,xml"}};
+                // prepare filters for the dialog
+                nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf,xml"}};
 
-        // show the dialog
-        nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
-        if (result == NFD_OKAY) {
-          command_buffer_.add(std::make_shared<LoadRobotCommand>(
-              out_path.get(), robot_, shader_));
-        } else if (result == NFD_CANCEL) {
-          LOG_F(INFO, "User pressed cancel.");
-        } else {
-          LOG_F(ERROR, "Error: %s", NFD::GetError());
+                // show the dialog
+                nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
+                if (result == NFD_OKAY) {
+                    command_buffer_.add(
+                        std::make_shared<LoadRobotCommand>(out_path.get(), robot_, shader_));
+                } else if (result == NFD_CANCEL) {
+                    LOG_F(INFO, "User pressed cancel.");
+                } else {
+                    LOG_F(ERROR, "Error: %s", NFD::GetError());
+                }
+            }
+
+            if (ImGui::MenuItem("Save", "Ctrl+S", false, static_cast<bool>(robot_))) {
+                NFD::UniquePath out_path;
+                nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf"}};
+                nfdresult_t result = NFD::SaveDialog(out_path, filter_item, 1);
+                if (result == NFD_OKAY) {
+                    LOG_F(INFO, "Success! %s", out_path.get());
+                    exportRobot(*robot_, out_path.get());
+                } else if (result == NFD_CANCEL) {
+                    LOG_F(INFO, "User pressed cancel.");
+                } else {
+                    LOG_F(ERROR, "Error: %s", NFD::GetError());
+                }
+            }
+            if (ImGui::MenuItem("Exit", "Alt+F4")) {
+                bWindowShouldClose_ = true;
+            }
+
+            ImGui::EndMenu();
         }
-      }
 
-      if (ImGui::MenuItem("Save", "Ctrl+S", false, static_cast<bool>(robot_))) {
-        NFD::UniquePath out_path;
-        nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf"}};
-        nfdresult_t result = NFD::SaveDialog(out_path, filter_item, 1);
-        if (result == NFD_OKAY) {
-          LOG_F(INFO, "Success! %s", out_path.get());
-          exportRobot(*robot_, out_path.get());
-        } else if (result == NFD_CANCEL) {
-          LOG_F(INFO, "User pressed cancel.");
-        } else {
-          LOG_F(ERROR, "Error: %s", NFD::GetError());
+        if (ImGui::BeginMenu("Edit")) {
+            if (ImGui::MenuItem("Undo", "Ctrl+Z", false, command_buffer_.canUndo())) {
+                command_buffer_.undo();
+            }
+            if (ImGui::MenuItem("Redo", "Ctrl+Y", false, command_buffer_.canRedo())) {
+                command_buffer_.redo();
+            }
+            ImGui::Separator();
+            if (ImGui::MenuItem("New Robot", "Ctrl+N")) {
+                command_buffer_.add(std::make_shared<CreateRobotCommand>(robot_, shader_));
+            }
+            auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
+            if (ImGui::MenuItem("Create Joint", "Ctrl+J", false, link_node != nullptr)) {
+                command_buffer_.add(
+                    std::make_shared<CreateJointCommand>("New Joint", link_node, robot_));
+            }
+            ImGui::EndMenu();
         }
-      }
-      if (ImGui::MenuItem("Exit", "Alt+F4")) {
-        bWindowShouldClose_ = true;
-      }
 
-      ImGui::EndMenu();
+        if (ImGui::BeginMenu("View")) {
+            ImGui::MenuItem("Show Grid", nullptr, &bShowGrid_);
+            ImGui::EndMenu();
+        }
+
+        if (ImGui::BeginMenu("Help")) {
+            ImGui::MenuItem("About");
+            ImGui::EndMenu();
+        }
     }
 
-    if (ImGui::BeginMenu("Edit")) {
-      if (ImGui::MenuItem("Undo", "Ctrl+Z", false, command_buffer_.canUndo())) {
-        command_buffer_.undo();
-      }
-      if (ImGui::MenuItem("Redo", "Ctrl+Y", false, command_buffer_.canRedo())) {
-        command_buffer_.redo();
-      }
-      ImGui::Separator();
-      if (ImGui::MenuItem("New Robot", "Ctrl+N")) {
-        command_buffer_.add(
-            std::make_shared<CreateRobotCommand>(robot_, shader_));
-      }
-      auto link_node =
-          std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
-      if (ImGui::MenuItem("Create Joint", "Ctrl+J", false,
-                          link_node != nullptr)) {
-        command_buffer_.add(std::make_shared<CreateJointCommand>(
-            "New Joint", link_node, robot_));
-      }
-      ImGui::EndMenu();
-    }
-
-    if (ImGui::BeginMenu("View")) {
-      ImGui::MenuItem("Show Grid", nullptr, &bShowGrid_);
-      ImGui::EndMenu();
-    }
-
-    if (ImGui::BeginMenu("Help")) {
-      ImGui::MenuItem("About");
-      ImGui::EndMenu();
-    }
-  }
-
-  menubar_height_ = static_cast<int>(ImGui::GetWindowSize().y);
-  ImGui::EndMainMenuBar();
+    menubar_height_ = static_cast<int>(ImGui::GetWindowSize().y);
+    ImGui::EndMainMenuBar();
 }
 
 void App::drawRobotTree() {
-  ImGuiTableFlags table_flags =
-      ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
-      ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
-      ImGuiTableFlags_Hideable | ImGuiTableFlags_NoBordersInBody |
-      ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
+    ImGuiTableFlags table_flags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
+                                  ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
+                                  ImGuiTableFlags_Hideable | ImGuiTableFlags_NoBordersInBody |
+                                  ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
 
-  if (ImGui::BeginTable("robot table", 2, table_flags, ImVec2(0, 300))) {
-    ImGui::TableSetupColumn("Name",
-                            ImGuiTableColumnFlags_NoHide |
-                                ImGuiTableColumnFlags_WidthStretch,
-                            0.9F);
-    ImGui::TableSetupColumn(
-        "Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed,
-        0.1F);
-    ImGui::TableHeadersRow();
+    if (ImGui::BeginTable("robot table", 2, table_flags, ImVec2(0, kRobotTableHeight))) {
+        ImGui::TableSetupColumn(
+            "Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 0.9F);
+        ImGui::TableSetupColumn(
+            "Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 0.1F);
+        ImGui::TableHeadersRow();
 
-    if (not robot_) {
-      ImGui::TableNextRow();
-      ImGui::TableNextColumn();
-      ImGui::Text("--");
-      ImGui::TableNextColumn();
-      ImGui::Text("--");
-    } else {
-      ImGuiTreeNodeFlags tree_flags = ImGuiTreeNodeFlags_DefaultOpen |
-                                      ImGuiTreeNodeFlags_OpenOnArrow |
-                                      ImGuiTreeNodeFlags_SpanAllColumns;
-
-      urdf::LinkNodePtr current_link = robot_->getRoot();
-
-      std::function<void(const urdf::LinkNodePtr &)> recursion =
-          [&](auto link) {
-            if (not link)
-              return;
-
-            // Unique ID for drag and drop
-            void *node_id = static_cast<void *>(link.get());
-
+        if (not robot_) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-
-            bool open = ImGui::TreeNodeEx(
-                link->link.name.c_str(),
-                tree_flags |
-                    (link->children.empty() ? ImGuiTreeNodeFlags_Leaf : 0) |
-                    (link.get() == selected_node_.get()
-                         ? ImGuiTreeNodeFlags_Selected
-                         : 0));
-
-            if (ImGui::IsItemHovered()) {
-              hovered_node_ = link;
-            }
-
-            if (ImGui::IsItemClicked() and selected_node_ != link) {
-              selected_node_ = link;
-              selected_link_origin_ = nullptr;
-            }
-
-            // Drag source for link node
-            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-              ImGui::SetDragDropPayload("LINK_NODE", &node_id, sizeof(void *));
-              ImGui::Text("Moving %s", link->link.name.c_str());
-              ImGui::EndDragDropSource();
-            }
-
-            // Drop target for joint node
-            if (ImGui::BeginDragDropTarget()) {
-              if (const ImGuiPayload *payload =
-                      ImGui::AcceptDragDropPayload("JOINT_NODE")) {
-                urdf::JointNodePtr dropped_joint_node =
-                    *static_cast<urdf::JointNodePtr *>(payload->Data);
-                LOG_F(INFO, "Dropped joint %s onto link %s",
-                      dropped_joint_node->joint.name.c_str(),
-                      link->link.name.c_str());
-                command_buffer_.add(std::make_shared<JointChangeParentCommand>(
-                    dropped_joint_node, link, robot_));
-              }
-              ImGui::EndDragDropTarget();
-            }
-
+            ImGui::Text("--");
             ImGui::TableNextColumn();
-            ImGui::Text("Link");
+            ImGui::Text("--");
+        } else {
+            ImGuiTreeNodeFlags tree_flags = ImGuiTreeNodeFlags_DefaultOpen |
+                                            ImGuiTreeNodeFlags_OpenOnArrow |
+                                            ImGuiTreeNodeFlags_SpanAllColumns;
 
-            if (open) {
-              for (urdf::JointNodePtr &joint : link->children) {
+            urdf::LinkNodePtr current_link = robot_->getRoot();
+
+            std::function<void(const urdf::LinkNodePtr &)> recursion = [&](auto link) {
+                if (not link) return;
+
+                // Unique ID for drag and drop
+                void *node_id = static_cast<void *>(link.get());
+
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
 
                 bool open = ImGui::TreeNodeEx(
-                    joint->joint.name.c_str(),
-                    tree_flags | (joint.get() == selected_node_.get()
-                                      ? ImGuiTreeNodeFlags_Selected
-                                      : 0));
+                    link->link.name.c_str(),
+                    tree_flags | (link->children.empty() ? ImGuiTreeNodeFlags_Leaf : 0) |
+                        (link.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0));
 
                 if (ImGui::IsItemHovered()) {
-                  hovered_node_ = nullptr;
+                    hovered_node_ = link;
                 }
 
-                if (ImGui::IsItemClicked()) {
-                  selected_node_ = joint;
+                if (ImGui::IsItemClicked() and selected_node_ != link) {
+                    selected_node_ = link;
+                    selected_link_origin_ = nullptr;
                 }
 
-                // Drag source for joint node
+                // Drag source for link node
                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
-                  ImGui::SetDragDropPayload("JOINT_NODE", &joint,
-                                            sizeof(urdf::JointNodePtr *));
-                  ImGui::Text("Moving %s", joint->joint.name.c_str());
-                  ImGui::EndDragDropSource();
+                    ImGui::SetDragDropPayload("LINK_NODE", &node_id, sizeof(void *));
+                    ImGui::Text("Moving %s", link->link.name.c_str());
+                    ImGui::EndDragDropSource();
                 }
 
-                // Drop target for link node
+                // Drop target for joint node
                 if (ImGui::BeginDragDropTarget()) {
-                  if (const ImGuiPayload *payload =
-                          ImGui::AcceptDragDropPayload("LINK_NODE")) {
-                    // void* dropped_link_node_id =
-                    // *static_cast<void**>(payload->Data); Handle the drop for
-                    // a link node (update parent/child relationships)
-                  }
-                  ImGui::EndDragDropTarget();
+                    if (const ImGuiPayload *payload = ImGui::AcceptDragDropPayload("JOINT_NODE")) {
+                        urdf::JointNodePtr dropped_joint_node =
+                            *static_cast<urdf::JointNodePtr *>(payload->Data);
+                        LOG_F(INFO, "Dropped joint %s onto link %s",
+                              dropped_joint_node->joint.name.c_str(), link->link.name.c_str());
+                        command_buffer_.add(std::make_shared<JointChangeParentCommand>(
+                            dropped_joint_node, link, robot_));
+                    }
+                    ImGui::EndDragDropTarget();
                 }
 
                 ImGui::TableNextColumn();
-                ImGui::Text("Joint");
+                ImGui::Text("Link");
 
                 if (open) {
-                  recursion(joint->child);
-                  ImGui::TreePop();
+                    for (urdf::JointNodePtr &joint : link->children) {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+
+                        bool open =
+                            ImGui::TreeNodeEx(joint->joint.name.c_str(),
+                                              tree_flags | (joint.get() == selected_node_.get()
+                                                                ? ImGuiTreeNodeFlags_Selected
+                                                                : 0));
+
+                        if (ImGui::IsItemHovered()) {
+                            hovered_node_ = nullptr;
+                        }
+
+                        if (ImGui::IsItemClicked()) {
+                            selected_node_ = joint;
+                        }
+
+                        // Drag source for joint node
+                        if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
+                            ImGui::SetDragDropPayload("JOINT_NODE", &joint,
+                                                      sizeof(urdf::JointNodePtr *));
+                            ImGui::Text("Moving %s", joint->joint.name.c_str());
+                            ImGui::EndDragDropSource();
+                        }
+
+                        // Drop target for link node
+                        if (ImGui::BeginDragDropTarget()) {
+                            if (const ImGuiPayload *payload =
+                                    ImGui::AcceptDragDropPayload("LINK_NODE")) {
+                                // void* dropped_link_node_id =
+                                // *static_cast<void**>(payload->Data); Handle the drop for
+                                // a link node (update parent/child relationships)
+                            }
+                            ImGui::EndDragDropTarget();
+                        }
+
+                        ImGui::TableNextColumn();
+                        ImGui::Text("Joint");
+
+                        if (open) {
+                            recursion(joint->child);
+                            ImGui::TreePop();
+                        }
+                    }
+                    ImGui::TreePop();
                 }
-              }
-              ImGui::TreePop();
-            }
-          };
+            };
 
-      recursion(current_link);
+            recursion(current_link);
+        }
+
+        ImGui::EndTable();
     }
-
-    ImGui::EndTable();
-  }
 }
 
 void App::drawSideMenu() {
-  ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()), ImGuiCond_Always);
-  ImGui::SetNextWindowSize(ImVec2(350, static_cast<float>(GetScreenHeight()) -
-                                           ImGui::GetFrameHeight()),
-                           ImGuiCond_Always);
+    ImGui::SetNextWindowPos(ImVec2(0, ImGui::GetFrameHeight()), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(
+        ImVec2(kSidePanelWidth, static_cast<float>(GetScreenHeight()) - ImGui::GetFrameHeight()),
+        ImGuiCond_Always);
 
-  ImGui::Begin("Robot Tree", nullptr,
-               ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
-                   ImGuiWindowFlags_NoTitleBar);
+    ImGui::Begin("Robot Tree", nullptr,
+                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoTitleBar);
 
-  drawRobotTree();
-  ImGui::Separator();
-  drawNodeProperties();
+    drawRobotTree();
+    ImGui::Separator();
+    drawNodeProperties();
 
-  ImGui::End();
+    ImGui::End();
 }
 
 void App::menuPropertiesInertial(urdf::LinkNodePtr link_node) {
-  if (auto &inertial = link_node->link.inertial) {
-    selected_link_origin_ = &inertial->origin;
+    if (auto &inertial = link_node->link.inertial) {
+        selected_link_origin_ = &inertial->origin;
 
-    inputFloatUndoable("Mass", inertial->mass);
+        inputFloatUndoable("Mass", inertial->mass);
 
-    originGui(inertial->origin);
+        originGui(inertial->origin);
 
-    if (ImGui::TreeNode("Inertia")) {
-      inputFloatUndoable("ixx", inertial->inertia.ixx);
-      inputFloatUndoable("iyy", inertial->inertia.iyy);
-      inputFloatUndoable("izz", inertial->inertia.izz);
-      inputFloatUndoable("ixy", inertial->inertia.ixy);
-      inputFloatUndoable("ixz", inertial->inertia.ixz);
-      inputFloatUndoable("iyz", inertial->inertia.iyz);
-      ImGui::TreePop();
+        if (ImGui::TreeNode("Inertia")) {
+            inputFloatUndoable("ixx", inertial->inertia.ixx);
+            inputFloatUndoable("iyy", inertial->inertia.iyy);
+            inputFloatUndoable("izz", inertial->inertia.izz);
+            inputFloatUndoable("ixy", inertial->inertia.ixy);
+            inputFloatUndoable("ixz", inertial->inertia.ixz);
+            inputFloatUndoable("iyz", inertial->inertia.iyz);
+            ImGui::TreePop();
+        }
+    } else {
+        selected_link_origin_ = nullptr;
+        if (ImGui::Button("Create inertial component")) {
+            command_buffer_.add(
+                std::make_shared<CreateInertialCommand>(link_node, selected_link_origin_));
+        }
     }
-  } else {
-    selected_link_origin_ = nullptr;
-    if (ImGui::Button("Create inertial component")) {
-      command_buffer_.add(std::make_shared<CreateInertialCommand>(
-          link_node, selected_link_origin_));
-    }
-  }
 }
 
 void App::menuPropertiesVisual(urdf::LinkNodePtr link_node) {
-  auto &visual = link_node->link.visual;
-  if (visual.has_value()) {
-    if (visual->origin.has_value()) {
-      selected_link_origin_ = &*visual->origin;
+    auto &visual = link_node->link.visual;
+    if (visual.has_value()) {
+        if (visual->origin.has_value()) {
+            selected_link_origin_ = &*visual->origin;
+        }
+        menuName(visual->name, "visual");
+        menuOrigin(visual->origin);
+        menuGeometry(visual->geometry, link_node->visual_model);
+        menuMaterial(visual->material_name);
+        ImGui::Separator();
+        if (ImGui::Button("Delete visual component")) {
+            command_buffer_.add(std::make_shared<DeleteVisualCommand>(link_node, robot_));
+        }
+    } else {
+        selected_link_origin_ = nullptr;
+        if (ImGui::Button("Create visual component")) {
+            command_buffer_.add(std::make_shared<CreateVisualCommand>(link_node, robot_, shader_));
+        }
     }
-    menuName(visual->name, "visual");
-    menuOrigin(visual->origin);
-    menuGeometry(visual->geometry, link_node->visual_model);
-    menuMaterial(visual->material_name);
-    ImGui::Separator();
-    if (ImGui::Button("Delete visual component")) {
-      command_buffer_.add(
-          std::make_shared<DeleteVisualCommand>(link_node, robot_));
-    }
-  } else {
-    selected_link_origin_ = nullptr;
-    if (ImGui::Button("Create visual component")) {
-      command_buffer_.add(
-          std::make_shared<CreateVisualCommand>(link_node, robot_, shader_));
-    }
-  }
 }
 
 void App::menuPropertiesCollisions(urdf::LinkNodePtr link_node, int i) {
-  urdf::Collision &col = link_node->link.collision[i];
+    urdf::Collision &col = link_node->link.collision[i];
 
-  selected_link_origin_ =
-      col.origin.has_value() ? &col.origin.value() : nullptr;
+    selected_link_origin_ = col.origin.has_value() ? &col.origin.value() : nullptr;
 
-  menuName(col.name, "collision");
-  menuOrigin(col.origin);
-  menuGeometry(col.geometry, link_node->collision_models[i]);
+    menuName(col.name, "collision");
+    menuOrigin(col.origin);
+    menuGeometry(col.geometry, link_node->collision_models[i]);
 }
 
 void App::drawNodeProperties() {
-  if (not selected_node_ or not robot_)
-    return;
+    if (not selected_node_ or not robot_) return;
 
-  if (auto link_node =
-          std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
-    if (ImGui::BeginTabBar("PropertiesBar",
-                           ImGuiTabBarFlags_FittingPolicyScroll |
-                               ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)) {
-      if (ImGui::BeginTabItem("Inertial##PropMenuInertial")) {
-        menuPropertiesInertial(link_node);
-        ImGui::EndTabItem();
-      }
+    if (auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
+        if (ImGui::BeginTabBar("PropertiesBar",
+                               ImGuiTabBarFlags_FittingPolicyScroll |
+                                   ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)) {
+            if (ImGui::BeginTabItem("Inertial##PropMenuInertial")) {
+                menuPropertiesInertial(link_node);
+                ImGui::EndTabItem();
+            }
 
-      if (ImGui::BeginTabItem("Visual##PropMenuVisual")) {
-        menuPropertiesVisual(link_node);
-        ImGui::EndTabItem();
-      }
+            if (ImGui::BeginTabItem("Visual##PropMenuVisual")) {
+                menuPropertiesVisual(link_node);
+                ImGui::EndTabItem();
+            }
 
-      if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing)) {
-        command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
-      }
+            if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing)) {
+                command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
+            }
 
-      // TODO(ramon) fix bug: when changing name, the tab looses focus
-      for (size_t i = 0; i < link_node->link.collision.size(); ++i) {
-        bool open = true;
-        const urdf::Collision &col = link_node->link.collision[i];
-        char name_buffer[256];
-        if (col.name.has_value()) {
-          snprintf(name_buffer, 256, "%s##ColTabItem%zu",
-                   col.name.value().c_str(), i);
-        } else {
-          snprintf(name_buffer, 256, "Col %zu##ColTabItem%zu", i, i);
+            // TODO(ramon) fix bug: when changing name, the tab looses focus
+            for (size_t i = 0; i < link_node->link.collision.size(); ++i) {
+                bool open = true;
+                const urdf::Collision &col = link_node->link.collision[i];
+                char name_buffer[256];
+                if (col.name.has_value()) {
+                    snprintf(name_buffer, 256, "%s##ColTabItem%zu", col.name.value().c_str(), i);
+                } else {
+                    snprintf(name_buffer, 256, "Col %zu##ColTabItem%zu", i, i);
+                }
+                if (ImGui::BeginTabItem(name_buffer, &open)) {
+                    menuPropertiesCollisions(link_node, i);
+                    ImGui::EndTabItem();
+                }
+
+                if (not open) {
+                    command_buffer_.add(std::make_shared<DeleteCollisionCommand>(link_node, i));
+                }
+            }
+
+            ImGui::EndTabBar();
         }
-        if (ImGui::BeginTabItem(name_buffer, &open)) {
-          menuPropertiesCollisions(link_node, i);
-          ImGui::EndTabItem();
+    } else if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
+        inputTextUndoable("Name##joint", joint_node->joint.name);
+
+        static const char *joint_types[] = {"revolute", "continuous", "prismatic",
+                                            "fixed",    "floating",   "planar"};
+        int choice = joint_node->joint.type;
+        urdf::Joint::Type old_type = joint_node->joint.type;
+        if (ImGui::Combo("dropdown", &choice, joint_types, IM_ARRAYSIZE(joint_types),
+                         urdf::Joint::kNumJointTypes)) {
+            joint_node->joint.type = static_cast<urdf::Joint::Type>(choice);
+            command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Joint::Type>>(
+                joint_node->joint.type, old_type, joint_node->joint.type));
         }
 
-        if (not open) {
-          command_buffer_.add(
-              std::make_shared<DeleteCollisionCommand>(link_node, i));
+        ImGui::Text("Parent link: %s", joint_node->parent->link.name.c_str());
+        ImGui::Text("Child link: %s", joint_node->child->link.name.c_str());
+
+        menuOrigin(joint_node->joint.origin);
+        if (choice != urdf::Joint::kFixed) {
+            menuAxis(joint_node->joint.axis);
+            menuDynamics(joint_node->joint.dynamics);
+            menuLimit(joint_node->joint.limit);
         }
-      }
-
-      ImGui::EndTabBar();
     }
-  } else if (auto joint_node =
-                 std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
-    inputTextUndoable("Name##joint", joint_node->joint.name);
-
-    static const char *joint_types[] = {"revolute", "continuous", "prismatic",
-                                        "fixed",    "floating",   "planar"};
-    int choice = joint_node->joint.type;
-    urdf::Joint::Type old_type = joint_node->joint.type;
-    if (ImGui::Combo("dropdown", &choice, joint_types,
-                     IM_ARRAYSIZE(joint_types), urdf::Joint::kNumJointTypes)) {
-      joint_node->joint.type = static_cast<urdf::Joint::Type>(choice);
-      command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Joint::Type>>(
-          joint_node->joint.type, old_type, joint_node->joint.type));
-    }
-
-    ImGui::Text("Parent link: %s", joint_node->parent->link.name.c_str());
-    ImGui::Text("Child link: %s", joint_node->child->link.name.c_str());
-
-    menuOrigin(joint_node->joint.origin);
-    if (choice != urdf::Joint::kFixed) {
-      menuAxis(joint_node->joint.axis);
-      menuDynamics(joint_node->joint.dynamics);
-      menuLimit(joint_node->joint.limit);
-    }
-  }
 }
 
 void App::originGui(urdf::Origin &origin) {
-  if (ImGui::TreeNode("Origin")) {
-    auto fk = [this]() { robot_->forwardKinematics(); };
+    if (ImGui::TreeNode("Origin")) {
+        auto fk = [this]() { robot_->forwardKinematics(); };
 
-    auto originField = [&](const char* label, Vector3& vec) {
-      Vector3 pre = vec;
-      ImGui::InputFloat3(label, &vec.x);
-      if (ImGui::IsItemActivated()) snapshot_origin_ = origin;
-      if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_origin_) {
-        command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Origin>>(
-            origin, *snapshot_origin_, origin, fk));
-        snapshot_origin_.reset();
-      }
-      if (pre.x != vec.x || pre.y != vec.y || pre.z != vec.z)
-        robot_->forwardKinematics();
-    };
+        auto originField = [&](const char *label, Vector3 &vec) {
+            Vector3 pre = vec;
+            ImGui::InputFloat3(label, &vec.x);
+            if (ImGui::IsItemActivated()) snapshot_origin_ = origin;
+            if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_origin_) {
+                command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Origin>>(
+                    origin, *snapshot_origin_, origin, fk));
+                snapshot_origin_.reset();
+            }
+            if (pre.x != vec.x || pre.y != vec.y || pre.z != vec.z) robot_->forwardKinematics();
+        };
 
-    originField("Position", origin.xyz);
-    originField("Orientation", origin.rpy);
+        originField("Position", origin.xyz);
+        originField("Orientation", origin.rpy);
 
-    if (ImGui::IsItemClicked() and selected_node_) {
-      selected_link_origin_ = &origin;
+        if (ImGui::IsItemClicked() and selected_node_) {
+            selected_link_origin_ = &origin;
+        }
+
+        ImGui::TreePop();
     }
-
-    ImGui::TreePop();
-  }
 }
 
 void App::menuName(std::optional<std::string> &name, const char *label) {
-  if (name) {
-    inputTextUndoable("Name", *name);
-  } else {
-    if (ImGui::Button("Create name")) {
-      command_buffer_.add(std::make_shared<CreateNameCommand>(name));
+    if (name) {
+        inputTextUndoable("Name", *name);
+    } else {
+        if (ImGui::Button("Create name")) {
+            command_buffer_.add(std::make_shared<CreateNameCommand>(name));
+        }
     }
-  }
 }
 
 void App::menuOrigin(std::optional<urdf::Origin> &origin) {
-  if (origin) {
-    originGui(*origin);
-  } else {
-    if (ImGui::Button("Create origin")) {
-      command_buffer_.add(
-          std::make_shared<CreateOriginCommand>(origin, selected_link_origin_));
+    if (origin) {
+        originGui(*origin);
+    } else {
+        if (ImGui::Button("Create origin")) {
+            command_buffer_.add(
+                std::make_shared<CreateOriginCommand>(origin, selected_link_origin_));
+        }
     }
-  }
 }
 
-void App::menuMaterial(std::optional<std::string> &material_name,
-                       const char *label) {
-  if (material_name) {
-    inputTextUndoable("Material name", *material_name);
-  } else {
-    if (ImGui::Button("Create material")) {
-      command_buffer_.add(std::make_shared<CreateNameCommand>(material_name));
+void App::menuMaterial(std::optional<std::string> &material_name, const char *label) {
+    if (material_name) {
+        inputTextUndoable("Material name", *material_name);
+    } else {
+        if (ImGui::Button("Create material")) {
+            command_buffer_.add(std::make_shared<CreateNameCommand>(material_name));
+        }
     }
-  }
 }
 
 void App::menuAxis(std::optional<urdf::Axis> &axis) {
-  if (axis) {
-    if (ImGui::TreeNode("Axis")) {
-      inputFloat3Undoable("xyz", axis->xyz);
-      if (ImGui::Button("Delete axis")) {
-        auto old_axis = *axis;
-        axis = std::nullopt;
-        command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::optional<urdf::Axis>>>(
-            axis, old_axis, std::nullopt));
-      }
-      ImGui::TreePop();
+    if (axis) {
+        if (ImGui::TreeNode("Axis")) {
+            inputFloat3Undoable("xyz", axis->xyz);
+            if (ImGui::Button("Delete axis")) {
+                auto old_axis = *axis;
+                axis = std::nullopt;
+                command_buffer_.add(
+                    std::make_shared<UpdatePropertyCommand<std::optional<urdf::Axis>>>(
+                        axis, old_axis, std::nullopt));
+            }
+            ImGui::TreePop();
+        }
+    } else {
+        if (ImGui::Button("Create axis")) {
+            command_buffer_.add(std::make_shared<CreateAxisCommand>(axis));
+        }
     }
-  } else {
-    if (ImGui::Button("Create axis")) {
-      command_buffer_.add(std::make_shared<CreateAxisCommand>(axis));
-    }
-  }
 }
 
 void App::menuDynamics(std::optional<urdf::Dynamics> &dynamics) {
-  if (dynamics) {
-    if (ImGui::TreeNode("Dynamics")) {
-      inputFloatUndoable("Damping", dynamics->damping);
-      inputFloatUndoable("Friction", dynamics->friction);
-      if (ImGui::Button("Delete dynamics")) {
-        auto old_dynamics = *dynamics;
-        dynamics = std::nullopt;
-        command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::optional<urdf::Dynamics>>>(
-            dynamics, old_dynamics, std::nullopt));
-      }
-      ImGui::TreePop();
+    if (dynamics) {
+        if (ImGui::TreeNode("Dynamics")) {
+            inputFloatUndoable("Damping", dynamics->damping);
+            inputFloatUndoable("Friction", dynamics->friction);
+            if (ImGui::Button("Delete dynamics")) {
+                auto old_dynamics = *dynamics;
+                dynamics = std::nullopt;
+                command_buffer_.add(
+                    std::make_shared<UpdatePropertyCommand<std::optional<urdf::Dynamics>>>(
+                        dynamics, old_dynamics, std::nullopt));
+            }
+            ImGui::TreePop();
+        }
+    } else {
+        if (ImGui::Button("Create dynamics")) {
+            command_buffer_.add(std::make_shared<CreateDynamicsCommand>(dynamics));
+        }
     }
-  } else {
-    if (ImGui::Button("Create dynamics")) {
-      command_buffer_.add(std::make_shared<CreateDynamicsCommand>(dynamics));
-    }
-  }
 }
 
 void App::menuLimit(std::optional<urdf::Limit> &limit) {
-  if (limit) {
-    if (ImGui::TreeNode("Limit")) {
-      inputFloatUndoable("Lower", limit->lower);
-      inputFloatUndoable("Upper", limit->upper);
-      inputFloatUndoable("Effort", limit->effort);
-      inputFloatUndoable("Velocity", limit->velocity);
-      if (ImGui::Button("Delete limit")) {
-        auto old_limit = *limit;
-        limit = std::nullopt;
-        command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::optional<urdf::Limit>>>(
-            limit, old_limit, std::nullopt));
-      }
-      ImGui::TreePop();
-    }
-  } else {
-    if (ImGui::Button("Create limit")) {
-      command_buffer_.add(std::make_shared<CreateLimitCommand>(limit));
-    }
-  }
-}
-
-void App::menuGeometry(urdf::Geometry& geometry, Model& model) {
-  if (ImGui::TreeNode("Geometry")) {
-    if (urdf::GeometryTypePtr &type = geometry.type) {
-      static const char *geom_types[] = {"Box", "Cylinder", "Sphere", "Mesh"};
-
-      int choice = 0;
-      if (std::dynamic_pointer_cast<urdf::Box>(type)) {
-        choice = 0;
-      } else if (std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
-        choice = 1;
-      } else if (std::dynamic_pointer_cast<urdf::Sphere>(type)) {
-        choice = 2;
-      } else if (std::dynamic_pointer_cast<urdf::Mesh>(type)) {
-        choice = 3;
-      }
-
-      if (ImGui::Combo("dropdown", &choice, geom_types,
-                       IM_ARRAYSIZE(geom_types), 4)) {
-        switch (choice) {
-        case 0:
-          command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
-              type, std::make_shared<urdf::Box>(), geometry, model, robot_));
-          break;
-        case 1:
-          command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
-              type, std::make_shared<urdf::Cylinder>(), geometry, model, robot_));
-          break;
-        case 2:
-          command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
-              type, std::make_shared<urdf::Sphere>(), geometry, model, robot_));
-          break;
-        case 3:
-          command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
-              type, std::make_shared<urdf::Mesh>(""), geometry, model, robot_));
-          break;
-        default:
-          LOG_F(ERROR, "Invalid geometry type");
-        }
-      }
-
-      switch (choice) {
-      case 0:
-        if (auto box = std::dynamic_pointer_cast<urdf::Box>(type)) {
-          Vector3 pre = box->size;
-          ImGui::InputFloat3("Size", &box->size.x, "%.3f");
-          if (ImGui::IsItemActivated()) snapshot_vec3_ = pre;
-          if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_vec3_) {
-            command_buffer_.add(std::make_shared<UpdateGeometryBoxCommand>(
-                box, *snapshot_vec3_, model, shader_));
-            snapshot_vec3_.reset();
-          }
-        }
-        break;
-      case 1:
-        if (auto cylinder = std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
-          float pre_r = cylinder->radius;
-          ImGui::InputFloat("Radius", &cylinder->radius, 0.01F, 0.1F, "%.3f");
-          if (ImGui::IsItemActivated()) {
-            snapshot_float_ = pre_r;
-          }
-          if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
-            command_buffer_.add(std::make_shared<UpdateGeometryCylinderCommand>(
-                cylinder, *snapshot_float_, cylinder->length, model, shader_));
-            snapshot_float_.reset();
-          }
-
-          float pre_l = cylinder->length;
-          ImGui::InputFloat("Length", &cylinder->length, 0.01F, 0.1F, "%.3f");
-          if (ImGui::IsItemActivated()) {
-            snapshot_float_ = pre_l;
-          }
-          if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
-            command_buffer_.add(std::make_shared<UpdateGeometryCylinderCommand>(
-                cylinder, cylinder->radius, *snapshot_float_, model, shader_));
-            snapshot_float_.reset();
-          }
-        }
-        break;
-      case 2:
-        if (auto sphere = std::dynamic_pointer_cast<urdf::Sphere>(type)) {
-          float pre_r = sphere->radius;
-          ImGui::InputFloat("Radius", &sphere->radius, 0.01F, 0.1F, "%.3f");
-          if (ImGui::IsItemActivated()) {
-            snapshot_float_ = pre_r;
-          }
-          if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
-            command_buffer_.add(std::make_shared<UpdateGeometrySphereCommand>(
-                sphere, *snapshot_float_, model, shader_));
-            snapshot_float_.reset();
-          }
-        }
-        break;
-      case 3:
-        if (auto gmesh = std::dynamic_pointer_cast<urdf::Mesh>(type)) {
-          ImGui::Text("Filename: %s", gmesh->filename.c_str());
-          ImGui::SameLine();
-          if (ImGui::Button("...")) {
-            NFD::UniquePath out_path;
-
-            // prepare filters for the dialog
-            nfdfilteritem_t filter_item[2] = {{"Mesh filename", "dae,stl"}};
-
-            // show the dialog
-            nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
-            if (result == NFD_OKAY) {
-              command_buffer_.add(std::make_shared<UpdateGeometryMeshCommand>(
-                  gmesh, out_path.get(), model, shader_));
-            } else if (result == NFD_CANCEL) {
-              LOG_F(INFO, "User pressed cancel.");
-            } else {
-              LOG_F(WARNING, "Warn: %s", NFD::GetError());
+    if (limit) {
+        if (ImGui::TreeNode("Limit")) {
+            inputFloatUndoable("Lower", limit->lower);
+            inputFloatUndoable("Upper", limit->upper);
+            inputFloatUndoable("Effort", limit->effort);
+            inputFloatUndoable("Velocity", limit->velocity);
+            if (ImGui::Button("Delete limit")) {
+                auto old_limit = *limit;
+                limit = std::nullopt;
+                command_buffer_.add(
+                    std::make_shared<UpdatePropertyCommand<std::optional<urdf::Limit>>>(
+                        limit, old_limit, std::nullopt));
             }
-          }
-          if (ImGui::InputText("Filename", &gmesh->filename,
-                               ImGuiInputTextFlags_EnterReturnsTrue)) {
-            // TODO(ramon): try to load mesh and update
-          }
+            ImGui::TreePop();
         }
-        break;
-      default:
-        LOG_F(ERROR, "Invalid geometry type");
-      }
     } else {
-      if (ImGui::Button("Create geometry")) {
-        geometry.type = std::make_shared<urdf::Box>();
-        model = geometry.type->generateGeometry();
-      }
+        if (ImGui::Button("Create limit")) {
+            command_buffer_.add(std::make_shared<CreateLimitCommand>(limit));
+        }
     }
-    ImGui::TreePop();
-  }
 }
 
-void App::inputFloatUndoable(const char* label, float& value,
-                              float step, float step_fast,
-                              const char* fmt,
-                              std::function<void()> post_action) {
+void App::menuGeometry(urdf::Geometry &geometry, Model &model) {
+    if (ImGui::TreeNode("Geometry")) {
+        if (urdf::GeometryTypePtr &type = geometry.type) {
+            static const char *geom_types[] = {"Box", "Cylinder", "Sphere", "Mesh"};
+
+            int choice = 0;
+            if (std::dynamic_pointer_cast<urdf::Box>(type)) {
+                choice = 0;
+            } else if (std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
+                choice = 1;
+            } else if (std::dynamic_pointer_cast<urdf::Sphere>(type)) {
+                choice = 2;
+            } else if (std::dynamic_pointer_cast<urdf::Mesh>(type)) {
+                choice = 3;
+            }
+
+            if (ImGui::Combo("dropdown", &choice, geom_types, IM_ARRAYSIZE(geom_types), 4)) {
+                switch (choice) {
+                    case 0:
+                        command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
+                            type, std::make_shared<urdf::Box>(), geometry, model, robot_));
+                        break;
+                    case 1:
+                        command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
+                            type, std::make_shared<urdf::Cylinder>(), geometry, model, robot_));
+                        break;
+                    case 2:
+                        command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
+                            type, std::make_shared<urdf::Sphere>(), geometry, model, robot_));
+                        break;
+                    case 3:
+                        command_buffer_.add(std::make_shared<ChangeGeometryCommand>(
+                            type, std::make_shared<urdf::Mesh>(""), geometry, model, robot_));
+                        break;
+                    default:
+                        LOG_F(ERROR, "Invalid geometry type");
+                }
+            }
+
+            switch (choice) {
+                case 0:
+                    if (auto box = std::dynamic_pointer_cast<urdf::Box>(type)) {
+                        Vector3 pre = box->size;
+                        ImGui::InputFloat3("Size", &box->size.x, "%.3f");
+                        if (ImGui::IsItemActivated()) snapshot_vec3_ = pre;
+                        if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_vec3_) {
+                            command_buffer_.add(std::make_shared<UpdateGeometryBoxCommand>(
+                                box, *snapshot_vec3_, model, shader_));
+                            snapshot_vec3_.reset();
+                        }
+                    }
+                    break;
+                case 1:
+                    if (auto cylinder = std::dynamic_pointer_cast<urdf::Cylinder>(type)) {
+                        float pre_r = cylinder->radius;
+                        ImGui::InputFloat("Radius", &cylinder->radius, 0.01F, 0.1F, "%.3f");
+                        if (ImGui::IsItemActivated()) {
+                            snapshot_float_ = pre_r;
+                        }
+                        if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
+                            command_buffer_.add(std::make_shared<UpdateGeometryCylinderCommand>(
+                                cylinder, *snapshot_float_, cylinder->length, model, shader_));
+                            snapshot_float_.reset();
+                        }
+
+                        float pre_l = cylinder->length;
+                        ImGui::InputFloat("Length", &cylinder->length, 0.01F, 0.1F, "%.3f");
+                        if (ImGui::IsItemActivated()) {
+                            snapshot_float_ = pre_l;
+                        }
+                        if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
+                            command_buffer_.add(std::make_shared<UpdateGeometryCylinderCommand>(
+                                cylinder, cylinder->radius, *snapshot_float_, model, shader_));
+                            snapshot_float_.reset();
+                        }
+                    }
+                    break;
+                case 2:
+                    if (auto sphere = std::dynamic_pointer_cast<urdf::Sphere>(type)) {
+                        float pre_r = sphere->radius;
+                        ImGui::InputFloat("Radius", &sphere->radius, 0.01F, 0.1F, "%.3f");
+                        if (ImGui::IsItemActivated()) {
+                            snapshot_float_ = pre_r;
+                        }
+                        if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
+                            command_buffer_.add(std::make_shared<UpdateGeometrySphereCommand>(
+                                sphere, *snapshot_float_, model, shader_));
+                            snapshot_float_.reset();
+                        }
+                    }
+                    break;
+                case 3:
+                    if (auto gmesh = std::dynamic_pointer_cast<urdf::Mesh>(type)) {
+                        ImGui::Text("Filename: %s", gmesh->filename.c_str());
+                        ImGui::SameLine();
+                        if (ImGui::Button("...")) {
+                            NFD::UniquePath out_path;
+
+                            // prepare filters for the dialog
+                            nfdfilteritem_t filter_item[2] = {{"Mesh filename", "dae,stl"}};
+
+                            // show the dialog
+                            nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
+                            if (result == NFD_OKAY) {
+                                command_buffer_.add(std::make_shared<UpdateGeometryMeshCommand>(
+                                    gmesh, out_path.get(), model, shader_));
+                            } else if (result == NFD_CANCEL) {
+                                LOG_F(INFO, "User pressed cancel.");
+                            } else {
+                                LOG_F(WARNING, "Warn: %s", NFD::GetError());
+                            }
+                        }
+                        if (ImGui::InputText("Filename", &gmesh->filename,
+                                             ImGuiInputTextFlags_EnterReturnsTrue)) {
+                            // TODO(ramon): try to load mesh and update
+                        }
+                    }
+                    break;
+                default:
+                    LOG_F(ERROR, "Invalid geometry type");
+            }
+        } else {
+            if (ImGui::Button("Create geometry")) {
+                geometry.type = std::make_shared<urdf::Box>();
+                model = geometry.type->generateGeometry();
+            }
+        }
+        ImGui::TreePop();
+    }
+}
+
+void App::inputFloatUndoable(const char *label, float &value, float step, float step_fast,
+                             const char *fmt, std::function<void()> post_action) {
     float pre = value;
     ImGui::InputFloat(label, &value, step, step_fast, fmt);
     if (ImGui::IsItemActivated()) snapshot_float_ = pre;
     if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
-        command_buffer_.add(std::make_shared<UpdatePropertyCommand<float>>(
-            value, *snapshot_float_, value, post_action));
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<float>>(value, *snapshot_float_,
+                                                                           value, post_action));
         snapshot_float_.reset();
     }
 }
 
-void App::inputFloat3Undoable(const char* label, Vector3& vec,
-                               const char* fmt,
-                               std::function<void()> post_action) {
+void App::inputFloat3Undoable(const char *label, Vector3 &vec, const char *fmt,
+                              std::function<void()> post_action) {
     Vector3 pre = vec;
     ImGui::InputFloat3(label, &vec.x, fmt);
     if (ImGui::IsItemActivated()) snapshot_vec3_ = pre;
     if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_vec3_) {
-        command_buffer_.add(std::make_shared<UpdatePropertyCommand<Vector3>>(
-            vec, *snapshot_vec3_, vec, post_action));
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<Vector3>>(vec, *snapshot_vec3_,
+                                                                             vec, post_action));
         snapshot_vec3_.reset();
     }
 }
 
-void App::inputTextUndoable(const char* label, std::string& str,
-                             std::function<void()> post_action) {
+void App::inputTextUndoable(const char *label, std::string &str,
+                            std::function<void()> post_action) {
     std::string pre = str;
     ImGui::InputText(label, &str);
     if (ImGui::IsItemActivated()) snapshot_string_ = pre;
@@ -949,10 +926,9 @@ void App::inputTextUndoable(const char* label, std::string& str,
     }
 }
 
-void App::cleanup()
-{
+void App::cleanup() {
     UnloadShader(shader_);
     rgizmo_unload();
-    rlImGuiShutdown();      // Close rl gui
-    CloseWindow();          // Close window and OpenGL context
+    rlImGuiShutdown();  // Close rl gui
+    CloseWindow();      // Close window and OpenGL context
 }

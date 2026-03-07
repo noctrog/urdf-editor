@@ -1,20 +1,22 @@
 #pragma once
 
-#include <optional>
-#include <functional>
-#include <vector>
-#include <memory>
-#include <map>
-
-#include <pugixml.hpp>
 #include <raylib.h>
 #include <raymath.h>
 
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <pugixml.hpp>
+#include <vector>
+
 namespace urdf {
 
-inline Vector3 MatrixToXYZ(const Matrix& m)
-{
-    Vector3 xyz {Vector3Zero()};
+// Extract XYZ intrinsic Euler angles (roll-pitch-yaw) from a rotation matrix.
+// Uses the convention: R = Rx(roll) * Ry(pitch) * Rz(yaw).
+// Assumes no gimbal lock (pitch != +/-90 degrees).
+inline Vector3 MatrixToXYZ(const Matrix& m) {
+    Vector3 xyz{Vector3Zero()};
 
     xyz.x = std::atan2(-m.m9, m.m10);
     xyz.y = std::atan2(m.m8, std::sqrt(m.m0 * m.m0 + m.m4 * m.m4));
@@ -23,14 +25,11 @@ inline Vector3 MatrixToXYZ(const Matrix& m)
     return xyz;
 }
 
-inline Vector3 PosFromMatrix(const Matrix& m)
-{
-    return Vector3 {m.m12, m.m13, m.m14};
-}
+inline Vector3 PosFromMatrix(const Matrix& m) { return Vector3{m.m12, m.m13, m.m14}; }
 
 struct Origin {
     Origin();
-    Origin(const char *xyz, const char *rpy);
+    Origin(const char* xyz, const char* rpy);
     Origin(const Vector3& xyz, const Vector3& rpy);
 
     Matrix toMatrix(void) const;
@@ -47,7 +46,7 @@ struct GeometryType {
 
 struct Box : public GeometryType {
     Box();
-    Box(const char *size);
+    Box(const char* size);
     Box(const Vector3& size);
     virtual ~Box() = default;
 
@@ -58,7 +57,7 @@ struct Box : public GeometryType {
 
 struct Cylinder : public GeometryType {
     Cylinder();
-    Cylinder(const char *radius, const char *length);
+    Cylinder(const char* radius, const char* length);
     Cylinder(float radius, float length);
     virtual ~Cylinder() = default;
 
@@ -70,7 +69,7 @@ struct Cylinder : public GeometryType {
 
 struct Sphere : public GeometryType {
     Sphere();
-    Sphere(const char *radius);
+    Sphere(const char* radius);
     Sphere(float radius);
     virtual ~Sphere() = default;
 
@@ -80,7 +79,7 @@ struct Sphere : public GeometryType {
 };
 
 struct Mesh : public GeometryType {
-    Mesh(const char *filename);
+    Mesh(const char* filename);
     virtual ~Mesh() = default;
 
     std::string filename;
@@ -109,10 +108,9 @@ struct Inertia {
 };
 
 struct Inertial {
-    explicit Inertial(const char *xyz = nullptr, const char *rpy = nullptr,
-                      float mass = 0.0F,
-                      float ixx = 0.0F, float iyy = 0.0F, float izz = 0.0F,
-                      float ixy = 0.0F, float ixz = 0.0F, float iyz = 0.0F);
+    explicit Inertial(const char* xyz = nullptr, const char* rpy = nullptr, float mass = 0.0F,
+                      float ixx = 0.0F, float iyy = 0.0F, float izz = 0.0F, float ixy = 0.0F,
+                      float ixz = 0.0F, float iyz = 0.0F);
 
     Origin origin;
     float mass;
@@ -135,7 +133,7 @@ struct Collision {
 struct Axis {
     Axis();
     explicit Axis(const Vector3& _xyz);
-    explicit Axis(const char *s_xyz);
+    explicit Axis(const char* s_xyz);
 
     Vector3 xyz;
 };
@@ -148,8 +146,7 @@ struct Dynamics {
     float friction;
 };
 
-struct Limit
-{
+struct Limit {
     Limit(float lower, float upper, float effort, float velocity);
 
     float lower;
@@ -169,10 +166,16 @@ struct Link {
 };
 
 struct Joint {
-    Joint(const char *name, const char *parent, const char *child, const char *type);
+    Joint(const char* name, const char* parent, const char* child, const char* type);
 
     enum Type : int {
-        kRevolute = 0, kContinuous, kPrismatic, kFixed, kFloating, kPlanar, kNumJointTypes
+        kRevolute = 0,
+        kContinuous,
+        kPrismatic,
+        kFixed,
+        kFloating,
+        kPlanar,
+        kNumJointTypes
     };
 
     std::string name;
@@ -199,8 +202,7 @@ using TreeNodePtr = std::shared_ptr<TreeNode>;
 using LinkNodePtr = std::shared_ptr<LinkNode>;
 using JointNodePtr = std::shared_ptr<JointNode>;
 
-struct LinkNode : TreeNode
-{
+struct LinkNode : TreeNode {
     LinkNode();
     LinkNode(Link link, JointNodePtr parent_joint);
 
@@ -214,11 +216,12 @@ struct LinkNode : TreeNode
     Model visual_model;
     std::vector<Model> collision_models;
 
-    Matrix w_T_l; // Transform matrix from world to current link
+    // Homogeneous transform from link frame into world frame.
+    // Naming convention: a_T_b = transform that maps a point in frame b to frame a.
+    Matrix w_T_l;
 };
 
-struct JointNode : TreeNode
-{
+struct JointNode : TreeNode {
     JointNode(Joint joint, LinkNodePtr parent, LinkNodePtr child);
 
     Joint joint;
@@ -227,7 +230,7 @@ struct JointNode : TreeNode
 };
 
 class Robot {
-public:
+   public:
     explicit Robot(LinkNodePtr root, const std::map<std::string, Material>& materials = {});
     ~Robot();
 
@@ -253,7 +256,7 @@ public:
 
     const std::map<std::string, Material>& getMaterials() const;
 
-private:
+   private:
     static Matrix originToMatrix(std::optional<Origin>& origin);
 
     LinkNodePtr root_;
@@ -267,7 +270,7 @@ private:
 
 using RobotPtr = std::shared_ptr<Robot>;
 
-RobotPtr buildRobot(const char *urdf_file);
+RobotPtr buildRobot(const char* urdf_file);
 
 void exportRobot(const Robot& robot, std::string out_filename);
 
@@ -286,9 +289,9 @@ std::optional<Material> xmlNodeToMaterial(const pugi::xml_node& xml_node);
 void linkToXmlNode(pugi::xml_node& xml_node, const Link& link);
 void jointToXmlNode(pugi::xml_node& xml_node, const Joint& joint);
 
-void inertialToXmlNode(pugi::xml_node& xml_node,  const Inertial& inertial);
+void inertialToXmlNode(pugi::xml_node& xml_node, const Inertial& inertial);
 void originToXmlNode(pugi::xml_node& xml_node, const Origin& origin);
 void geometryToXmlNode(pugi::xml_node& xml_node, const Geometry& geometry);
 void materialToXmlNode(pugi::xml_node& xml_node, const Material& material);
 
-} // namespace urdf
+}  // namespace urdf

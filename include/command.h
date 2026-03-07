@@ -1,26 +1,27 @@
 #pragma once
 
-#include <functional>
-#include <string>
+#include <import_mesh.h>
 #include <robot.h>
 
-#include <import_mesh.h>
+#include <functional>
+#include <string>
 
 class Command {
-    public:
-        virtual ~Command() = default;
-        virtual void execute() = 0;
-        virtual void undo() = 0;
+   public:
+    virtual ~Command() = default;
+    virtual void execute() = 0;
+    virtual void undo() = 0;
 };
 
 using CommandPtr = std::shared_ptr<Command>;
 
 template <typename T>
 class UpdatePropertyCommand : public Command {
-public:
+   public:
     UpdatePropertyCommand(T& target, T old_value, T new_value,
                           std::function<void()> post_action = nullptr)
-        : target_(target), old_value_(std::move(old_value)),
+        : target_(target),
+          old_value_(std::move(old_value)),
           new_value_(std::move(new_value)),
           post_action_(std::move(post_action)) {}
 
@@ -33,16 +34,15 @@ public:
         if (post_action_) post_action_();
     }
 
-private:
+   private:
     T& target_;
     T old_value_;
     T new_value_;
     std::function<void()> post_action_;
 };
 
-class CommandBuffer
-{
-public:
+class CommandBuffer {
+   public:
     CommandBuffer();
 
     void add(CommandPtr command);
@@ -52,32 +52,32 @@ public:
 
     bool canUndo();
     bool canRedo();
-private:
+
+   private:
     std::vector<CommandPtr> executed_commands_;
     std::vector<CommandPtr> new_commands_;
     size_t current_command_;
 };
 
 class CreateRobotCommand : public Command {
-public:
-    CreateRobotCommand(std::shared_ptr<urdf::Robot>& robot,
-                       const Shader& shader);
+   public:
+    CreateRobotCommand(std::shared_ptr<urdf::Robot>& robot, const Shader& shader);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     std::shared_ptr<urdf::Robot>& robot_;
     std::shared_ptr<urdf::Robot> old_robot_;
     const Shader& shader_;
 };
 
 class LoadRobotCommand : public Command {
-public:
-    LoadRobotCommand(std::string filename,
-                     std::shared_ptr<urdf::Robot>& robot,
-                     Shader& shader);
+   public:
+    LoadRobotCommand(std::string filename, std::shared_ptr<urdf::Robot>& robot, Shader& shader);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     const std::string filename_;
     std::shared_ptr<urdf::Robot>& robot_;
     std::shared_ptr<urdf::Robot> old_robot_;
@@ -86,13 +86,13 @@ private:
 };
 
 class JointChangeParentCommand : public Command {
-public:
-    JointChangeParentCommand(const urdf::JointNodePtr& node,
-                             const urdf::LinkNodePtr& new_parent,
+   public:
+    JointChangeParentCommand(const urdf::JointNodePtr& node, const urdf::LinkNodePtr& new_parent,
                              const urdf::RobotPtr& robot);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     urdf::JointNodePtr joint_;
     urdf::LinkNodePtr new_parent_;
     urdf::LinkNodePtr old_parent_;
@@ -101,13 +101,12 @@ private:
 };
 
 class CreateJointCommand : public Command {
-public:
-    CreateJointCommand(const char *joint_name,
-                       urdf::LinkNodePtr& parent,
-                       urdf::RobotPtr& robot);
+   public:
+    CreateJointCommand(const char* joint_name, urdf::LinkNodePtr& parent, urdf::RobotPtr& robot);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     std::string joint_name_;
     urdf::LinkNodePtr parent_;
     urdf::JointNodePtr new_joint_;
@@ -115,62 +114,65 @@ private:
 };
 
 class CreateNameCommand : public Command {
-public:
+   public:
     explicit CreateNameCommand(std::optional<std::string>& target);
     void execute() override;
     void undo() override;
 
-private:
+   private:
     std::optional<std::string>& target_;
 };
 
 class CreateOriginCommand : public Command {
-public:
-    explicit CreateOriginCommand(std::optional<urdf::Origin>& target, urdf::OriginRawPtr& selected_origin);
+   public:
+    explicit CreateOriginCommand(std::optional<urdf::Origin>& target,
+                                 urdf::OriginRawPtr& selected_origin);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     std::optional<urdf::Origin>& target_;
     urdf::OriginRawPtr& selected_origin_;
 };
 
 class CreateAxisCommand : public Command {
-public:
+   public:
     explicit CreateAxisCommand(std::optional<urdf::Axis>& target);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     std::optional<urdf::Axis>& target_;
 };
 
 class CreateDynamicsCommand : public Command {
-public:
+   public:
     explicit CreateDynamicsCommand(std::optional<urdf::Dynamics>& target);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     std::optional<urdf::Dynamics>& target_;
 };
 
 class CreateLimitCommand : public Command {
-public:
+   public:
     explicit CreateLimitCommand(std::optional<urdf::Limit>& target);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     std::optional<urdf::Limit>& target_;
 };
 
 class ChangeGeometryCommand : public Command {
-public:
-    ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry,
-                          urdf::GeometryTypePtr new_geometry,
-                          urdf::Geometry& target,
-                          Model& model,
-                          urdf::RobotPtr& robot);
+   public:
+    ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry, urdf::GeometryTypePtr new_geometry,
+                          urdf::Geometry& target, Model& model, urdf::RobotPtr& robot);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     urdf::GeometryTypePtr old_geometry_;
     urdf::GeometryTypePtr new_geometry_;
     urdf::Geometry& target_;
@@ -179,36 +181,36 @@ private:
 };
 
 class CreateInertialCommand : public Command {
-public:
+   public:
     explicit CreateInertialCommand(urdf::LinkNodePtr& link, urdf::OriginRawPtr& selected_origin);
     void execute() override;
     void undo() override;
 
-private:
+   private:
     urdf::LinkNodePtr link_;
     urdf::OriginRawPtr& selected_origin_;
 };
 
 class CreateVisualCommand : public Command {
-public:
-    CreateVisualCommand(urdf::LinkNodePtr& link,
-                        const urdf::RobotPtr& robot,
+   public:
+    CreateVisualCommand(urdf::LinkNodePtr& link, const urdf::RobotPtr& robot,
                         const Shader& shader_);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     urdf::LinkNodePtr link_;
     const urdf::RobotPtr robot_;
     const Shader shader_;
 };
 
 class DeleteVisualCommand : public Command {
-public:
-    DeleteVisualCommand(urdf::LinkNodePtr& link,
-                        urdf::RobotPtr& robot);
+   public:
+    DeleteVisualCommand(urdf::LinkNodePtr& link, urdf::RobotPtr& robot);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     urdf::LinkNodePtr link_;
     Shader shader_;
     urdf::Visual old_visual_;
@@ -216,34 +218,35 @@ private:
 };
 
 class AddCollisionCommand : public Command {
-public:
+   public:
     explicit AddCollisionCommand(urdf::LinkNodePtr& link);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     urdf::LinkNodePtr link_;
 };
 
 class DeleteCollisionCommand : public Command {
-public:
+   public:
     DeleteCollisionCommand(urdf::LinkNodePtr& link, int i);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     urdf::LinkNodePtr link_;
     int i_;
     urdf::Collision old_collision_;
 };
 
 class UpdateGeometryBoxCommand : public Command {
-public:
-    UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& box,
-                             const Vector3& old_size,
-                             Model& model,
+   public:
+    UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& box, const Vector3& old_size, Model& model,
                              const Shader& shader);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     Vector3 new_size_;
     Vector3 old_size_;
     std::shared_ptr<urdf::Box> box_;
@@ -252,15 +255,13 @@ private:
 };
 
 class UpdateGeometryCylinderCommand : public Command {
-public:
-    UpdateGeometryCylinderCommand(std::shared_ptr<urdf::Cylinder>& cylinder,
-                                  float old_radius,
-                                  float old_height,
-                                  Model& model,
-                                  const Shader& shader);
+   public:
+    UpdateGeometryCylinderCommand(std::shared_ptr<urdf::Cylinder>& cylinder, float old_radius,
+                                  float old_height, Model& model, const Shader& shader);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     float new_radius_;
     float new_length_;
     float old_radius_;
@@ -272,14 +273,13 @@ private:
 };
 
 class UpdateGeometrySphereCommand : public Command {
-public:
-    UpdateGeometrySphereCommand(std::shared_ptr<urdf::Sphere>& sphere,
-                                float old_radius,
-                                Model& model,
-                                const Shader& shader);
+   public:
+    UpdateGeometrySphereCommand(std::shared_ptr<urdf::Sphere>& sphere, float old_radius,
+                                Model& model, const Shader& shader);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     float new_radius_;
     float old_radius_;
     std::shared_ptr<urdf::Sphere> sphere_;
@@ -288,14 +288,13 @@ private:
 };
 
 class UpdateGeometryMeshCommand : public Command {
-public:
-    UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>& mesh,
-                              const std::string& new_filename,
-                              Model& model,
-                              const Shader& shader);
+   public:
+    UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>& mesh, const std::string& new_filename,
+                              Model& model, const Shader& shader);
     void execute() override;
     void undo() override;
-private:
+
+   private:
     std::string new_filename_;
     std::string old_filename_;
     std::shared_ptr<urdf::Mesh> mesh_;

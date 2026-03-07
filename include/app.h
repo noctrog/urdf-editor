@@ -2,25 +2,24 @@
 
 #define RAYGIZMO_IMPLEMENTATION
 
-#include <raylib.h>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <nfd.hpp>
-#include <robot.h>
 #include <command.h>
 #include <raygizmo.h>
+#include <raylib.h>
+#include <robot.h>
 
-class App
-{
-public:
+#include <functional>
+#include <memory>
+#include <nfd.hpp>
+#include <optional>
+
+class App {
+   public:
     App(int argc, char* argv[]);
     ~App() = default;
 
     void run();
 
-private:
-
+   private:
     void setup();
     void update();
     void draw();
@@ -35,9 +34,9 @@ private:
 
     void originGui(urdf::Origin& origin);
 
-    void menuName(std::optional<std::string>& name, const char *label = "");
+    void menuName(std::optional<std::string>& name, const char* label = "");
     void menuOrigin(std::optional<urdf::Origin>& origin);
-    void menuMaterial(std::optional<std::string>& material_name, const char *label = "");
+    void menuMaterial(std::optional<std::string>& material_name, const char* label = "");
     void menuGeometry(urdf::Geometry& geometry, Model& model);
     void menuAxis(std::optional<urdf::Axis>& axis);
     void menuDynamics(std::optional<urdf::Dynamics>& dynamics);
@@ -76,12 +75,9 @@ private:
     std::optional<std::string> snapshot_string_;
     std::optional<urdf::Origin> snapshot_origin_;
 
-    void inputFloatUndoable(const char* label, float& value,
-                            float step = 0, float step_fast = 0,
-                            const char* fmt = "%.3f",
-                            std::function<void()> post_action = nullptr);
-    void inputFloat3Undoable(const char* label, Vector3& vec,
-                             const char* fmt = "%.3f",
+    void inputFloatUndoable(const char* label, float& value, float step = 0, float step_fast = 0,
+                            const char* fmt = "%.3f", std::function<void()> post_action = nullptr);
+    void inputFloat3Undoable(const char* label, Vector3& vec, const char* fmt = "%.3f",
                              std::function<void()> post_action = nullptr);
     void inputTextUndoable(const char* label, std::string& str,
                            std::function<void()> post_action = nullptr);

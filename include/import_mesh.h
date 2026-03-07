@@ -1,10 +1,10 @@
 #ifndef IMPORT_MESH_H
 #define IMPORT_MESH_H
 
-#include <vector>
-
 #include <assimp/scene.h>
 #include <raylib.h>
+
+#include <vector>
 
 Mesh GenMeshCenteredCylinder(float radius, float height, int slices);
 
@@ -16,5 +16,4 @@ std::vector<Mesh> LoadColladaMeshes(const std::string& filename);
 
 Model LoadModelFromCollada(const std::string& filename);
 
-
-#endif // IMPORT_MESH_H
+#endif  // IMPORT_MESH_H
