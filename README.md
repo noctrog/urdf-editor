@@ -38,7 +38,7 @@ cmake --build build -j$(nproc)
 
 # Known bugs
 
-- [ ] Changing name of collision looses focus on the collision tab.
+- [x] Changing name of collision looses focus on the collision tab.
 - [x] When changing the geometry type, the forward kinematics have to be refreshed.
 - [ ] Crash when changing geometry type to Mesh.
 

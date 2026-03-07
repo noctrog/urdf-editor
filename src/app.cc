@@ -589,16 +589,12 @@ void App::drawNodeProperties() {
                 command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
             }
 
-            // TODO(ramon) fix bug: when changing name, the tab looses focus
             for (size_t i = 0; i < link_node->link.collision.size(); ++i) {
                 bool open = true;
-                const urdf::Collision &col = link_node->link.collision[i];
+                // Use a stable index-based label so that editing the collision
+                // name (inside the tab) never changes the tab's identity.
                 char name_buffer[256];
-                if (col.name.has_value()) {
-                    snprintf(name_buffer, 256, "%s##ColTabItem%zu", col.name.value().c_str(), i);
-                } else {
-                    snprintf(name_buffer, 256, "Col %zu##ColTabItem%zu", i, i);
-                }
+                snprintf(name_buffer, 256, "Col %zu##ColTabItem%zu", i, i);
                 if (ImGui::BeginTabItem(name_buffer, &open)) {
                     menuPropertiesCollisions(link_node, i);
                     ImGui::EndTabItem();
