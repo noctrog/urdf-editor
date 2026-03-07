@@ -297,6 +297,7 @@ class UpdateGeometryMeshCommand : public Command {
    private:
     std::string new_filename_;
     std::string old_filename_;
+    std::string old_resolved_path_;
     std::shared_ptr<urdf::Mesh> mesh_;
     Model& model_;
     const Shader& shader_;

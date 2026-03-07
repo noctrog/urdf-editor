@@ -424,6 +424,7 @@ UpdateGeometryMeshCommand::UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>
                                                      const Shader& shader)
     : new_filename_(new_filename),
       old_filename_(mesh->filename),
+      old_resolved_path_(mesh->resolved_path),
       mesh_(mesh),
       model_(model),
       shader_(shader) {}
@@ -432,10 +433,11 @@ void UpdateGeometryMeshCommand::execute() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     mesh_->filename = new_filename_;
+    mesh_->resolved_path = new_filename_;
 
     UnloadModel(model_);
     model_ = Model{};
-    if (std::filesystem::exists(mesh_->filename)) {
+    if (std::filesystem::exists(mesh_->resolved_path)) {
         model_ = mesh_->generateGeometry();
     }
 
@@ -448,6 +450,7 @@ void UpdateGeometryMeshCommand::undo() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     mesh_->filename = old_filename_;
+    mesh_->resolved_path = old_resolved_path_;
 
     UnloadModel(model_);
     model_ = mesh_->generateGeometry();

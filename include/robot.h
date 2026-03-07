@@ -79,15 +79,14 @@ struct Sphere : public GeometryType {
 };
 
 struct Mesh : public GeometryType {
-    Mesh(const char* filename);
+    Mesh(const char* filename, const std::string& resolved_path = "");
     virtual ~Mesh() = default;
 
     std::string filename;
+    std::string resolved_path;
 
     virtual Model generateGeometry() override;
 };
-
-// TODO: implement mesh geometry
 
 using GeometryTypePtr = std::shared_ptr<GeometryType>;
 
@@ -277,12 +276,12 @@ void exportRobot(const Robot& robot, std::string out_filename);
 pugi::xml_node findRoot(const pugi::xml_document& doc);
 
 // XML to data structures
-Link xmlNodeToLink(const pugi::xml_node& xml_node);
+Link xmlNodeToLink(const pugi::xml_node& xml_node, const std::string& urdf_dir = "");
 Joint xmlNodeToJoint(const pugi::xml_node& xml_node);
 
 std::optional<Inertial> xmlNodeToInertial(const pugi::xml_node& xml_node);
 std::optional<Origin> xmlNodeToOrigin(const pugi::xml_node& xml_node);
-Geometry xmlNodeToGeometry(const pugi::xml_node& xml_node);
+Geometry xmlNodeToGeometry(const pugi::xml_node& xml_node, const std::string& urdf_dir = "");
 std::optional<Material> xmlNodeToMaterial(const pugi::xml_node& xml_node);
 
 // Data structures to XML

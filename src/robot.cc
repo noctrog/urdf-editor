@@ -7,6 +7,7 @@
 
 #include <cstring>
 #include <deque>
+#include <filesystem>
 #include <functional>
 #include <loguru.hpp>
 #include <map>
@@ -40,6 +41,38 @@ static void storeVec4(const char* s, Vector4& vec) {
     std::stringstream iss(s);
     iss >> vec.x >> vec.y >> vec.z >> vec.w;
     CHECK_F(iss && (iss >> std::ws).eof(), "store_vec4: invalid string");
+}
+
+static std::string resolveMeshPath(const std::string& mesh_filename, const std::string& urdf_dir) {
+    namespace fs = std::filesystem;
+
+    const std::string package_prefix = "package://";
+    if (mesh_filename.rfind(package_prefix, 0) == 0) {
+        std::string remainder = mesh_filename.substr(package_prefix.size());
+        auto slash_pos = remainder.find('/');
+        std::string relative_path = (slash_pos != std::string::npos) ? remainder.substr(slash_pos + 1) : "";
+
+        // Walk up from urdf_dir looking for package.xml
+        fs::path dir = urdf_dir;
+        while (!dir.empty()) {
+            if (fs::exists(dir / "package.xml")) {
+                return (dir / relative_path).string();
+            }
+            fs::path parent = dir.parent_path();
+            if (parent == dir) break;
+            dir = parent;
+        }
+
+        LOG_F(WARNING, "Could not find package.xml for '%s', treating as relative to URDF dir",
+              mesh_filename.c_str());
+        return (fs::path(urdf_dir) / relative_path).string();
+    }
+
+    if (fs::path(mesh_filename).is_absolute()) {
+        return mesh_filename;
+    }
+
+    return (fs::path(urdf_dir) / mesh_filename).string();
 }
 
 Origin::Origin() : xyz{}, rpy{} {}
@@ -104,9 +137,10 @@ Model Sphere::generateGeometry() {
     return LoadModelFromMesh(mesh);
 }
 
-Mesh::Mesh(const char* filename) : filename(filename) {}
+Mesh::Mesh(const char* filename, const std::string& resolved_path)
+    : filename(filename), resolved_path(resolved_path.empty() ? filename : resolved_path) {}
 
-Model Mesh::generateGeometry() { return LoadModelFromCollada(filename); }
+Model Mesh::generateGeometry() { return LoadModelFromFile(resolved_path); }
 
 Inertia::Inertia(float ixx, float iyy, float izz, float ixy, float ixz, float iyz)
     : ixx(ixx), iyy(iyy), izz(izz), ixy(ixy), ixz(ixz), iyz(iyz) {}
@@ -178,13 +212,15 @@ RobotPtr buildRobot(const char* urdf_file) {
 
     bool is_root_robot = doc.root().name() != std::string("robot");
     CHECK_F(is_root_robot, "The urdf root name (%s) is not robot", doc.root().name());
-    LOG_F(INFO, "Building robot...");
+    LOG_F(INFO, "Building robot from: %s", urdf_file);
+
+    std::string urdf_dir = std::filesystem::path(urdf_file).parent_path().string();
 
     pugi::xml_node root_link = findRoot(doc);
     CHECK_F(not root_link.empty(), "No root link found");
 
     auto tree_root = std::make_shared<LinkNode>();
-    tree_root->link = xmlNodeToLink(root_link);
+    tree_root->link = xmlNodeToLink(root_link, urdf_dir);
     tree_root->w_T_l = MatrixIdentity();
 
     // Create all materials
@@ -212,7 +248,7 @@ RobotPtr buildRobot(const char* urdf_file) {
     // Link name to link
     std::map<std::string, Link> link_hash;
     for (const pugi::xml_node& link : doc.child("robot").children("link")) {
-        Link l = xmlNodeToLink(link);
+        Link l = xmlNodeToLink(link, urdf_dir);
         CHECK_F(link_hash.find(l.name) == link_hash.end());
         link_hash.insert({l.name, l});
     }
@@ -263,7 +299,7 @@ pugi::xml_node findRoot(const pugi::xml_document& doc) {
     return root_link;
 }
 
-Link xmlNodeToLink(const pugi::xml_node& xml_node) {
+Link xmlNodeToLink(const pugi::xml_node& xml_node, const std::string& urdf_dir) {
     CHECK_F(static_cast<bool>(xml_node.attribute("name")), "Link has no name");
     Link link(xml_node.attribute("name").as_string());
 
@@ -283,7 +319,7 @@ Link xmlNodeToLink(const pugi::xml_node& xml_node) {
 
         // --- Geometry
         const auto& geom_node = vis_node.child("geometry");
-        link.visual->geometry = xmlNodeToGeometry(geom_node);
+        link.visual->geometry = xmlNodeToGeometry(geom_node, urdf_dir);
 
         // --- Material
         if (const auto& mat_node = vis_node.child("material")) {
@@ -305,7 +341,7 @@ Link xmlNodeToLink(const pugi::xml_node& xml_node) {
 
         // --- Geometry
         const auto& geom_node = col_node.child("geometry");
-        col.geometry = xmlNodeToGeometry(geom_node);
+        col.geometry = xmlNodeToGeometry(geom_node, urdf_dir);
 
         link.collision.push_back(col);
     }
@@ -362,7 +398,7 @@ std::optional<Inertial> xmlNodeToInertial(const pugi::xml_node& xml_node) {
     }
 }
 
-Geometry xmlNodeToGeometry(const pugi::xml_node& geom_node) {
+Geometry xmlNodeToGeometry(const pugi::xml_node& geom_node, const std::string& urdf_dir) {
     CHECK_F(static_cast<bool>(geom_node), "Missing geometry tag!");
 
     Geometry geom;
@@ -376,8 +412,10 @@ Geometry xmlNodeToGeometry(const pugi::xml_node& geom_node) {
         geom.type =
             std::make_shared<Sphere>(geom_node.child("sphere").attribute("radius").as_string());
     } else if (geom_node.child("mesh")) {
-        LOG_F(INFO, "Mesh visuals are not implemented yet!");  // TODO(ramon)
-        geom.type = std::make_shared<Box>();
+        std::string filename = geom_node.child("mesh").attribute("filename").as_string();
+        std::string resolved = resolveMeshPath(filename, urdf_dir);
+        LOG_F(1, "Mesh: %s -> %s", filename.c_str(), resolved.c_str());
+        geom.type = std::make_shared<Mesh>(filename.c_str(), resolved);
     }
 
     return geom;
@@ -600,6 +638,9 @@ void geometryToXmlNode(pugi::xml_node& xml_node, const Geometry& geometry) {
         const Sphere& sphere = *std::dynamic_pointer_cast<Sphere>(geometry.type);
         pugi::xml_node sphere_node = xml_node.append_child("sphere");
         sphere_node.append_attribute("radius") = fmt::format("{}", sphere.radius).c_str();
+    } else if (auto mesh = std::dynamic_pointer_cast<Mesh>(geometry.type)) {
+        pugi::xml_node mesh_node = xml_node.append_child("mesh");
+        mesh_node.append_attribute("filename") = mesh->filename.c_str();
     } else {
         LOG_F(WARNING, "Geometry type not implemented yet");
     }

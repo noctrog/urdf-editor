@@ -68,39 +68,44 @@
     return mesh;
 }
 
-// Function to create a raylib Mesh from an Assimp mesh
 Mesh LoadMeshFromAssimp(const aiMesh* mesh) {
     Mesh result = {0};
 
-    // Allocate vertex and index buffers
     result.vertexCount = mesh->mNumVertices;
-    result.vertices =
-        (float*)RL_MALLOC(result.vertexCount * 3 * sizeof(float));  // Assuming 3D vertices
+    result.vertices = (float*)RL_MALLOC(result.vertexCount * 3 * sizeof(float));
     result.triangleCount = mesh->mNumFaces;
-    result.indices = (unsigned short*)RL_MALLOC(result.triangleCount * 3 *
-                                                sizeof(unsigned short));  // Assuming triangles
+    result.indices = (unsigned short*)RL_MALLOC(result.triangleCount * 3 * sizeof(unsigned short));
 
-    // Copy vertex positions
     memcpy(result.vertices, mesh->mVertices, result.vertexCount * 3 * sizeof(float));
 
-    // Copy indices
+    if (mesh->HasNormals()) {
+        result.normals = (float*)RL_MALLOC(result.vertexCount * 3 * sizeof(float));
+        memcpy(result.normals, mesh->mNormals, result.vertexCount * 3 * sizeof(float));
+    }
+
+    // Convert from assimp's unsigned int to raylib's unsigned short
     for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
         const aiFace* face = &mesh->mFaces[i];
-        memcpy(&result.indices[i * 3], face->mIndices, 3 * sizeof(unsigned int));
+        for (int j = 0; j < 3; j++) {
+            result.indices[i * 3 + j] = static_cast<unsigned short>(face->mIndices[j]);
+        }
     }
 
     return result;
 }
 
-// Function to load all meshes from a Collada file
-std::vector<Mesh> LoadColladaMeshes(const std::string& filename) {
+std::vector<Mesh> LoadMeshesFromFile(const std::string& filename) {
     Assimp::Importer importer;
-    const aiScene* scene = importer.ReadFile(filename, aiProcess_Triangulate);
+    const aiScene* scene =
+        importer.ReadFile(filename, aiProcess_Triangulate | aiProcess_PreTransformVertices);
 
     if (!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
-        LOG_F(WARNING, "ERROR: %s", importer.GetErrorString());
+        LOG_F(WARNING, "Failed to load mesh file '%s': %s", filename.c_str(),
+              importer.GetErrorString());
         return std::vector<Mesh>(1, Mesh());
     }
+
+    LOG_F(1, "Loaded mesh file '%s' with %d meshes", filename.c_str(), scene->mNumMeshes);
 
     std::vector<Mesh> meshes;
     for (unsigned int i = 0; i < scene->mNumMeshes; i++) {
@@ -111,13 +116,25 @@ std::vector<Mesh> LoadColladaMeshes(const std::string& filename) {
     return meshes;
 }
 
-Model LoadModelFromCollada(const std::string& filename) {
+Model LoadModelFromFile(const std::string& filename) {
     Model model = {};
-    std::vector<Mesh> meshes = LoadColladaMeshes(filename);
+    std::vector<Mesh> meshes = LoadMeshesFromFile(filename);
     model.meshCount = meshes.size();
     model.meshes = (Mesh*)RL_MALLOC(model.meshCount * sizeof(Mesh));
     for (size_t i = 0; i < meshes.size(); i++) {
         model.meshes[i] = meshes[i];
+        UploadMesh(&model.meshes[i], false);
     }
+
+    model.materialCount = 1;
+    model.materials = (Material*)RL_MALLOC(sizeof(Material));
+    model.materials[0] = LoadMaterialDefault();
+
+    // Assign default material to all meshes
+    model.meshMaterial = (int*)RL_MALLOC(model.meshCount * sizeof(int));
+    for (int i = 0; i < model.meshCount; i++) {
+        model.meshMaterial[i] = 0;
+    }
+
     return model;
 }
