@@ -63,6 +63,7 @@ class App {
     bool viewport_hovered_{false};
 
     bool bShowGrid_;
+    bool bSupersampling_{true};
     bool bWindowShouldClose_;
     int menubar_height_{0};
 

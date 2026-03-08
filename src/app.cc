@@ -43,6 +43,7 @@ constexpr float kGridLineColor = 0.75F;
 // UI
 constexpr float kSidePanelWidth = 350.0F;
 constexpr float kRobotTableHeight = 300.0F;
+constexpr int kSupersamplingScale = 2;
 
 // Platform-aware modifier label for menu shortcuts
 #ifdef __APPLE__
@@ -174,7 +175,12 @@ void App::drawViewport() {
                      ImGuiWindowFlags_NoScrollWithMouse |
                      ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-    rlImGuiImageRenderTexture(&scene_texture_);
+    int vp_w = GetScreenWidth() - static_cast<int>(kSidePanelWidth);
+    int vp_h = GetScreenHeight() - menubar_height_;
+    rlImGuiImageRect(
+        &scene_texture_.texture, vp_w, vp_h,
+        {0, 0, static_cast<float>(scene_texture_.texture.width),
+         -static_cast<float>(scene_texture_.texture.height)});
     viewport_hovered_ = ImGui::IsWindowHovered();
 
     ImGui::End();
@@ -317,10 +323,16 @@ void App::draw() {
     if (vp_w < 1) vp_w = 1;
     if (vp_h < 1) vp_h = 1;
 
-    // Resize render texture if viewport size changed
-    if (vp_w != scene_texture_.texture.width || vp_h != scene_texture_.texture.height) {
+    // Render at 2x resolution when supersampling is enabled
+    int scale = bSupersampling_ ? kSupersamplingScale : 1;
+    int tex_w = vp_w * scale;
+    int tex_h = vp_h * scale;
+
+    // Resize render texture if size changed
+    if (tex_w != scene_texture_.texture.width || tex_h != scene_texture_.texture.height) {
         if (scene_texture_.id != 0) UnloadRenderTexture(scene_texture_);
-        scene_texture_ = LoadRenderTexture(vp_w, vp_h);
+        scene_texture_ = LoadRenderTexture(tex_w, tex_h);
+        SetTextureFilter(scene_texture_.texture, TEXTURE_FILTER_BILINEAR);
     }
 
     // Viewport in window coordinates (for gizmo mouse mapping)
@@ -439,6 +451,7 @@ void App::drawToolbar() {
 
         if (ImGui::BeginMenu("View")) {
             ImGui::MenuItem("Show Grid", nullptr, &bShowGrid_);
+            ImGui::MenuItem("Supersampling AA", nullptr, &bSupersampling_);
             ImGui::EndMenu();
         }
 
