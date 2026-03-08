@@ -82,25 +82,49 @@ void drawGridZUp(int slices, float spacing) {
     rlEnd();
 }
 
+// Pan the camera right and up by the given amounts, keeping the target in sync.
+static void cameraPan(Camera3D *camera, float dx, float dy) {
+    CameraMoveRight(camera, dx, true);
+    Vector3 right = GetCameraRight(camera);
+    Vector3 up = Vector3CrossProduct(Vector3Subtract(camera->position, camera->target), right);
+    up = Vector3Scale(Vector3Normalize(up), dy);
+    camera->position = Vector3Add(camera->position, up);
+    camera->target = Vector3Add(camera->target, up);
+}
+
+// Orbit the camera around its target by yaw and pitch deltas.
+static void cameraOrbit(Camera3D *camera, float dx, float dy) {
+    CameraYaw(camera, dx, true);
+    CameraPitch(camera, dy, true, true, false);
+}
+
 static void updateCamera(Camera3D *camera) {
     bool is_mmb_down = IsMouseButtonDown(MOUSE_BUTTON_MIDDLE);
     bool is_shift_down = IsKeyDown(KEY_LEFT_SHIFT);
-    Vector2 mouse_delta = GetMouseDelta();
 
-    if (is_mmb_down && is_shift_down) {
-        CameraMoveRight(camera, -kCameraMoveSpeed * mouse_delta.x, true);
-
-        Vector3 right = GetCameraRight(camera);
-        Vector3 up = Vector3CrossProduct(Vector3Subtract(camera->position, camera->target), right);
-        up = Vector3Scale(Vector3Normalize(up), -kCameraMoveSpeed * mouse_delta.y);
-        camera->position = Vector3Add(camera->position, up);
-        camera->target = Vector3Add(camera->target, up);
-    } else if (is_mmb_down) {
-        CameraYaw(camera, -kCameraRotSpeed * mouse_delta.x, true);
-        CameraPitch(camera, -kCameraRotSpeed * mouse_delta.y, true, true, false);
+    // MMB controls (mouse users)
+    if (is_mmb_down) {
+        Vector2 mouse_delta = GetMouseDelta();
+        if (is_shift_down) {
+            cameraPan(camera, -kCameraMoveSpeed * mouse_delta.x,
+                      -kCameraMoveSpeed * mouse_delta.y);
+        } else {
+            cameraOrbit(camera, -kCameraRotSpeed * mouse_delta.x,
+                        -kCameraRotSpeed * mouse_delta.y);
+        }
     }
 
-    CameraMoveToTarget(camera, -GetMouseWheelMove() * kCameraZoomSpeed);
+    // Scroll-based controls (trackpad + mouse wheel)
+    Vector2 wheel = Vector2Scale(GetMouseWheelMoveV(), 3.0F);
+    bool is_ctrl_down = IsKeyDown(KEY_LEFT_CONTROL) || IsKeyDown(KEY_RIGHT_CONTROL);
+
+    if (is_ctrl_down) {
+        CameraMoveToTarget(camera, -wheel.y * kCameraZoomSpeed);
+    } else if (is_shift_down) {
+        cameraPan(camera, -wheel.x * kCameraMoveSpeed, wheel.y * kCameraMoveSpeed);
+    } else {
+        cameraOrbit(camera, -wheel.x * kCameraRotSpeed, -wheel.y * kCameraRotSpeed);
+    }
 }
 
 App::App(int argc, char *argv[]) : bShowGrid_(true), selected_link_origin_{nullptr} {
