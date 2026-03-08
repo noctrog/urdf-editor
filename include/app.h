@@ -24,7 +24,8 @@ class App {
     void update();
     void draw();
     void drawMenu();
-    void drawScene();
+    void drawScene(Rectangle viewport);
+    void drawViewport();
     void cleanup();
 
     void drawToolbar();
@@ -58,9 +59,12 @@ class App {
 
     NFD::Guard nfdguard_;
 
+    RenderTexture2D scene_texture_{};
+    bool viewport_hovered_{false};
+
     bool bShowGrid_;
     bool bWindowShouldClose_;
-    int menubar_height_;
+    int menubar_height_{0};
 
     urdf::TreeNodePtr hovered_node_;
     urdf::TreeNodePtr selected_node_;

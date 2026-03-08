@@ -159,7 +159,8 @@ static XYZColors get_xyz_colors(Vector3 current_axis, bool is_hot) {
 }
 
 static void draw_gizmo(
-    RGizmo gizmo, Camera3D camera, Vector3 position, HandleColors colors
+    RGizmo gizmo, Camera3D camera, Vector3 position, HandleColors colors,
+    Rectangle viewport
 ) {
     float radius = gizmo.view.size * Vector3Distance(camera.position, position);
 
@@ -278,9 +279,10 @@ static void draw_gizmo(
     // Draw white line from the gizmo's center to the mouse cursor when rotating
     if (gizmo.state == RGIZMO_STATE_ACTIVE_ROT) {
         rlSetLineWidth(gizmo.view.active_axis_draw_thickness);
-        DrawLineV(
-            GetWorldToScreen(position, camera), GetMousePosition(), WHITE
-        );
+        Vector2 screen_pos = GetWorldToScreenEx(position, camera, (int)viewport.width, (int)viewport.height);
+        Vector2 mouse = GetMousePosition();
+        Vector2 viewport_mouse = {mouse.x - viewport.x, mouse.y - viewport.y};
+        DrawLineV(screen_pos, viewport_mouse, WHITE);
     }
 
     rlSetLineWidth(previous_line_width);
@@ -360,7 +362,7 @@ RGizmo rgizmo_create(void) {
     return gizmo;
 }
 
-bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position) {
+bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position, Rectangle viewport) {
     bool updated = false;
 
     if (!IS_LOADED) {
@@ -387,16 +389,16 @@ bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position) {
          (Color){PLANE_HANDLE_Y, 0, 0, 0},
          (Color){PLANE_HANDLE_Z, 0, 0, 0}}};
 
-    draw_gizmo(*gizmo, camera, position, colors);
+    Rectangle picking_viewport = {0, 0, (float)PICKING_FBO_WIDTH, (float)PICKING_FBO_HEIGHT};
+    draw_gizmo(*gizmo, camera, position, colors, picking_viewport);
 
     rlDisableFramebuffer();
     rlEnableColorBlend();
-    Vector2 dpi = GetWindowScaleDPI();
-    rlViewport(0, 0, (int)(GetScreenWidth() * dpi.x), (int)(GetScreenHeight() * dpi.y));
 
     // -------------------------------------------------------------------
     // Pick the pixel under the mouse cursor
     Vector2 mouse_position = GetMousePosition();
+    Vector2 viewport_mouse = {mouse_position.x - viewport.x, mouse_position.y - viewport.y};
     unsigned char *pixels = (unsigned char *)rlReadTexturePixels(
         PICKING_TEXTURE,
         PICKING_FBO_WIDTH,
@@ -404,9 +406,9 @@ bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position) {
         RL_PIXELFORMAT_UNCOMPRESSED_R8G8B8A8
     );
 
-    float x_fract = Clamp(mouse_position.x / (float)GetScreenWidth(), 0.0, 1.0);
+    float x_fract = Clamp(viewport_mouse.x / viewport.width, 0.0, 1.0);
     float y_fract = Clamp(
-        1.0 - (mouse_position.y / (float)GetScreenHeight()), 0.0, 1.0
+        1.0 - (viewport_mouse.y / viewport.height), 0.0, 1.0
     );
     int x = (int)(PICKING_FBO_WIDTH * x_fract);
     int y = (int)(PICKING_FBO_HEIGHT * y_fract);
@@ -445,9 +447,8 @@ bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position) {
 
     switch (gizmo->state) {
         case RGIZMO_STATE_ACTIVE_ROT: {
-            Vector2 p1 = Vector2Subtract(
-                GetMousePosition(), GetWorldToScreen(position, camera)
-            );
+            Vector2 screen_pos = GetWorldToScreenEx(position, camera, (int)viewport.width, (int)viewport.height);
+            Vector2 p1 = Vector2Subtract(viewport_mouse, screen_pos);
             Vector2 p0 = Vector2Subtract(p1, GetMouseDelta());
 
             // Get angle between two vectors:
@@ -474,10 +475,9 @@ bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position) {
             break;
         };
         case RGIZMO_STATE_ACTIVE_AXIS: {
-            Vector2 p = Vector2Add(
-                GetWorldToScreen(position, camera), GetMouseDelta()
-            );
-            Ray r = GetMouseRay(p, camera);
+            Vector2 screen_pos = GetWorldToScreenEx(position, camera, (int)viewport.width, (int)viewport.height);
+            Vector2 p = Vector2Add(screen_pos, GetMouseDelta());
+            Ray r = GetScreenToWorldRayEx(p, camera, (int)viewport.width, (int)viewport.height);
 
             // Get two lines nearest point
             Vector3 line0point0 = camera.position;
@@ -504,10 +504,9 @@ bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position) {
             break;
         }
         case RGIZMO_STATE_ACTIVE_PLANE: {
-            Vector2 p = Vector2Add(
-                GetWorldToScreen(position, camera), GetMouseDelta()
-            );
-            Ray r = GetMouseRay(p, camera);
+            Vector2 screen_pos = GetWorldToScreenEx(position, camera, (int)viewport.width, (int)viewport.height);
+            Vector2 p = Vector2Add(screen_pos, GetMouseDelta());
+            Ray r = GetScreenToWorldRayEx(p, camera, (int)viewport.width, (int)viewport.height);
 
             // Collide ray and plane
             float denominator = r.direction.x * gizmo->update.axis.x
@@ -536,7 +535,7 @@ bool rgizmo_update(RGizmo *gizmo, Camera3D camera, Vector3 position) {
     return updated;
 }
 
-void rgizmo_draw(RGizmo gizmo, Camera3D camera, Vector3 position) {
+void rgizmo_draw(RGizmo gizmo, Camera3D camera, Vector3 position, Rectangle viewport) {
     if (!IS_LOADED) {
         TraceLog(LOG_ERROR, "RAYGIZMO: Gizmo is not loaded");
         exit(1);
@@ -559,7 +558,7 @@ void rgizmo_draw(RGizmo gizmo, Camera3D camera, Vector3 position) {
             || gizmo.state == RGIZMO_STATE_ACTIVE_PLANE
     );
 
-    draw_gizmo(gizmo, camera, position, colors);
+    draw_gizmo(gizmo, camera, position, colors, viewport);
 }
 
 Matrix rgizmo_get_transform(RGizmo gizmo, Vector3 position) {

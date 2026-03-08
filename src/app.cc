@@ -151,13 +151,34 @@ void App::setup() {
 void App::update() {
     command_buffer_.execute();
 
-    // Update
-    ImGuiIO &io = ImGui::GetIO();
-    if (not io.WantCaptureMouse) {
+    // Update camera only when mouse is over the viewport
+    if (viewport_hovered_) {
         updateCamera(&camera_);
     }
 
     //----------------------------------------------------------------------------------
+}
+
+void App::drawViewport() {
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+    ImGui::SetNextWindowPos(ImVec2(kSidePanelWidth, static_cast<float>(menubar_height_)),
+                            ImGuiCond_Always);
+    ImGui::SetNextWindowSize(
+        ImVec2(static_cast<float>(GetScreenWidth()) - kSidePanelWidth,
+               static_cast<float>(GetScreenHeight()) - static_cast<float>(menubar_height_)),
+        ImGuiCond_Always);
+
+    ImGui::Begin("##Viewport", nullptr,
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
+                     ImGuiWindowFlags_NoScrollWithMouse |
+                     ImGuiWindowFlags_NoBringToFrontOnFocus);
+
+    rlImGuiImageRenderTexture(&scene_texture_);
+    viewport_hovered_ = ImGui::IsWindowHovered();
+
+    ImGui::End();
+    ImGui::PopStyleVar();
 }
 
 void App::drawMenu() {
@@ -166,11 +187,12 @@ void App::drawMenu() {
     handleShortcuts();
     drawToolbar();
     drawSideMenu();
+    drawViewport();
 
     rlImGuiEnd();
 }
 
-void App::drawScene() {
+void App::drawScene(Rectangle viewport) {
     ClearBackground(LIGHTGRAY);
 
     // TODO(ramon): links can't be selected. Select instead visual, collision,
@@ -183,7 +205,7 @@ void App::drawScene() {
         Matrix w_t_o = MatrixMultiply(l_t_o, w_t_l);
 
         const Vector3 position{urdf::PosFromMatrix(w_t_o)};
-        if (rgizmo_update(&gizmo_, camera_, position)) {
+        if (rgizmo_update(&gizmo_, camera_, position, viewport)) {
             // Apply gizmo delta in world space, then recover local origin:
             // l_T_o = w_T_o' * inv(w_T_l)
             w_t_o = MatrixMultiply(w_t_o, rgizmo_get_transform(gizmo_, position));
@@ -198,6 +220,9 @@ void App::drawScene() {
             // Update the robot
             robot_->forwardKinematics();
         }
+        // Re-bind scene FBO after rgizmo_update's internal picking pass
+        rlEnableFramebuffer(scene_texture_.id);
+        rlViewport(0, 0, scene_texture_.texture.width, scene_texture_.texture.height);
     }
 
     const auto selected_joint = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_);
@@ -210,7 +235,7 @@ void App::drawScene() {
         Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
 
         const Vector3 position{urdf::PosFromMatrix(w_t_j)};
-        if (rgizmo_update(&gizmo_, camera_, position)) {
+        if (rgizmo_update(&gizmo_, camera_, position, viewport)) {
             // Apply gizmo delta in world space, then recover local joint origin:
             // p_T_j = w_T_j' * inv(w_T_parent)
             w_t_j = MatrixMultiply(w_t_j, rgizmo_get_transform(gizmo_, position));
@@ -225,6 +250,9 @@ void App::drawScene() {
             // Update the robot
             robot_->forwardKinematics();
         }
+        // Re-bind scene FBO after rgizmo_update's internal picking pass
+        rlEnableFramebuffer(scene_texture_.id);
+        rlViewport(0, 0, scene_texture_.texture.width, scene_texture_.texture.height);
     }
 
     bool was_active = prev_gizmo_state_ >= RGIZMO_STATE_ACTIVE;
@@ -267,7 +295,7 @@ void App::drawScene() {
         Matrix w_t_o = MatrixMultiply(l_t_o, w_t_l);
 
         const Vector3 position{urdf::PosFromMatrix(w_t_o)};
-        rgizmo_draw(gizmo_, camera_, position);
+        rgizmo_draw(gizmo_, camera_, position, viewport);
     }
 
     if (selected_joint and selected_joint->joint.origin) {
@@ -276,16 +304,38 @@ void App::drawScene() {
         const Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
 
         const Vector3 position{urdf::PosFromMatrix(w_t_j)};
-        rgizmo_draw(gizmo_, camera_, position);
+        rgizmo_draw(gizmo_, camera_, position, viewport);
     }
 
     EndMode3D();
 }
 
 void App::draw() {
+    // Compute viewport rect (right of side panel, below menu bar)
+    int vp_w = GetScreenWidth() - static_cast<int>(kSidePanelWidth);
+    int vp_h = GetScreenHeight() - menubar_height_;
+    if (vp_w < 1) vp_w = 1;
+    if (vp_h < 1) vp_h = 1;
+
+    // Resize render texture if viewport size changed
+    if (vp_w != scene_texture_.texture.width || vp_h != scene_texture_.texture.height) {
+        if (scene_texture_.id != 0) UnloadRenderTexture(scene_texture_);
+        scene_texture_ = LoadRenderTexture(vp_w, vp_h);
+    }
+
+    // Viewport in window coordinates (for gizmo mouse mapping)
+    Rectangle viewport = {kSidePanelWidth, static_cast<float>(menubar_height_),
+                          static_cast<float>(vp_w), static_cast<float>(vp_h)};
+
+    // 1. Render 3D scene into texture
+    BeginTextureMode(scene_texture_);
+    drawScene(viewport);
+    EndTextureMode();
+
+    // 2. Draw ImGui overlay (includes viewport image)
     BeginDrawing();
-    drawScene();  // Draw to render texture
-    drawMenu();   // Draw to screen
+    ClearBackground(DARKGRAY);
+    drawMenu();
     EndDrawing();
 }
 
@@ -960,6 +1010,7 @@ void App::inputTextUndoable(const char *label, std::string &str,
 }
 
 void App::cleanup() {
+    if (scene_texture_.id != 0) UnloadRenderTexture(scene_texture_);
     UnloadShader(shader_);
     rgizmo_unload();
     rlImGuiShutdown();  // Close rl gui
