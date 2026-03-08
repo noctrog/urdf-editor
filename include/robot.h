@@ -201,6 +201,12 @@ using TreeNodePtr = std::shared_ptr<TreeNode>;
 using LinkNodePtr = std::shared_ptr<LinkNode>;
 using JointNodePtr = std::shared_ptr<JointNode>;
 
+struct HitResult {
+    LinkNodePtr link;
+    enum Type { kVisual, kCollision } type;
+    int collision_index = 0;  // only meaningful when type == kCollision
+};
+
 struct LinkNode : TreeNode {
     LinkNode();
     LinkNode(Link link, JointNodePtr parent_joint);
@@ -248,7 +254,7 @@ class Robot {
 
     LinkNodePtr getRoot() const;
 
-    LinkNodePtr getLink(const Ray& ray);
+    std::optional<HitResult> getLink(const Ray& ray);
 
     void forEveryLink(const std::function<void(const LinkNodePtr&)>& func) const;
     void forEveryJoint(const std::function<void(const JointNodePtr&)>& func) const;

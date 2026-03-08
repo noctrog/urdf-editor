@@ -181,6 +181,38 @@ void App::update() {
         updateCamera(&camera_);
     }
 
+    // Viewport hover & click-to-select
+    if (viewport_hovered_ && gizmo_.state < RGIZMO_STATE_HOT && robot_) {
+        Vector2 mouse = GetMousePosition();
+        int vp_w = GetScreenWidth() - static_cast<int>(kSidePanelWidth);
+        int vp_h = GetScreenHeight() - menubar_height_;
+        Vector2 viewport_mouse = {mouse.x - kSidePanelWidth,
+                                  mouse.y - static_cast<float>(menubar_height_)};
+        Ray ray = GetScreenToWorldRayEx(viewport_mouse, camera_, vp_w, vp_h);
+
+        auto hit = robot_->getLink(ray);
+
+        hovered_node_ = hit ? hit->link : nullptr;
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            if (!hit) {
+                selected_node_ = nullptr;
+                selected_link_origin_ = nullptr;
+                pending_tab_ = -1;
+            } else if (hit->type == urdf::HitResult::kVisual) {
+                selected_node_ = hit->link;
+                pending_tab_ = 0;
+                auto& origin = hit->link->link.visual->origin;
+                selected_link_origin_ = origin ? &*origin : nullptr;
+            } else {
+                selected_node_ = hit->link;
+                pending_tab_ = hit->collision_index + 1;
+                auto& origin = hit->link->link.collision[hit->collision_index].origin;
+                selected_link_origin_ = origin ? &*origin : nullptr;
+            }
+        }
+    }
+
     //----------------------------------------------------------------------------------
 }
 
@@ -704,7 +736,9 @@ void App::drawNodeProperties() {
                 ImGui::EndTabItem();
             }
 
-            if (ImGui::BeginTabItem("Visual##PropMenuVisual")) {
+            ImGuiTabItemFlags visual_flags = (pending_tab_ == 0)
+                                                 ? ImGuiTabItemFlags_SetSelected : 0;
+            if (ImGui::BeginTabItem("Visual##PropMenuVisual", nullptr, visual_flags)) {
                 menuPropertiesVisual(link_node);
                 ImGui::EndTabItem();
             }
@@ -713,13 +747,16 @@ void App::drawNodeProperties() {
                 command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
             }
 
-            for (size_t i = 0; i < link_node->link.collision.size(); ++i) {
+            int num_collisions = static_cast<int>(link_node->link.collision.size());
+            for (int i = 0; i < num_collisions; ++i) {
                 bool open = true;
                 // Use a stable index-based label so that editing the collision
                 // name (inside the tab) never changes the tab's identity.
                 char name_buffer[256];
-                snprintf(name_buffer, 256, "Col %zu##ColTabItem%zu", i, i);
-                if (ImGui::BeginTabItem(name_buffer, &open)) {
+                snprintf(name_buffer, 256, "Col %d##ColTabItem%d", i, i);
+                ImGuiTabItemFlags col_flags = (pending_tab_ == i + 1)
+                                                   ? ImGuiTabItemFlags_SetSelected : 0;
+                if (ImGui::BeginTabItem(name_buffer, &open, col_flags)) {
                     menuPropertiesCollisions(link_node, i);
                     ImGui::EndTabItem();
                 }
@@ -730,6 +767,7 @@ void App::drawNodeProperties() {
             }
 
             ImGui::EndTabBar();
+            pending_tab_ = -1;
         }
     } else if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
         inputTextUndoable("Name##joint", joint_node->joint.name);

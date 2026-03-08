@@ -71,6 +71,8 @@ class App {
     urdf::TreeNodePtr selected_node_;
     urdf::OriginRawPtr selected_link_origin_;
 
+    int pending_tab_ = -1;  // -1=none, 0=visual, 1+=collision index + 1
+
     RGizmo gizmo_;
 
     // Gizmo undo tracking

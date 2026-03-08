@@ -5,6 +5,7 @@
 #include <raymath.h>
 #include <robot.h>
 
+#include <cfloat>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -816,6 +817,39 @@ void Robot::printTree() const {
 }
 
 LinkNodePtr Robot::getRoot() const { return root_; }
+
+std::optional<HitResult> Robot::getLink(const Ray& ray) {
+    float closest = FLT_MAX;
+    std::optional<HitResult> result;
+
+    forEveryLink([&](const LinkNodePtr& link) {
+        // Test visual meshes
+        if (link->link.visual && link->visual_model.meshCount > 0) {
+            for (int m = 0; m < link->visual_model.meshCount; m++) {
+                RayCollision rc = GetRayCollisionMesh(ray, link->visual_model.meshes[m],
+                                                      link->visual_model.transform);
+                if (rc.hit && rc.distance < closest) {
+                    closest = rc.distance;
+                    result = {link, HitResult::kVisual, 0};
+                }
+            }
+        }
+        // Test collision meshes
+        int num_collisions = static_cast<int>(link->collision_models.size());
+        for (int i = 0; i < num_collisions; i++) {
+            const Model& cm = link->collision_models[i];
+            for (int m = 0; m < cm.meshCount; m++) {
+                RayCollision rc = GetRayCollisionMesh(ray, cm.meshes[m], cm.transform);
+                if (rc.hit && rc.distance < closest) {
+                    closest = rc.distance;
+                    result = {link, HitResult::kCollision, i};
+                }
+            }
+        }
+    });
+
+    return result;
+}
 
 const std::map<std::string, Material>& Robot::getMaterials() const { return materials_; }
 
