@@ -26,6 +26,7 @@ class App {
     void drawMenu();
     void drawScene(Rectangle viewport);
     void drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link, Rectangle viewport);
+    void drawJointAxis(const urdf::JointNodePtr& joint);
     void drawViewport();
     void recreateSceneTexture(int width, int height);
     void cleanup();

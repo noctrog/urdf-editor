@@ -53,6 +53,13 @@ constexpr int kSupersamplingScale = 2;
 constexpr float kOutlineWidthPx = 5.0F;
 constexpr float kOutlineColor[4] = {1.0F, 0.65F, 0.0F, 1.0F};
 
+// Joint axis visualization
+constexpr float kAxisLength = 0.3F;
+constexpr float kAxisTipLength = 0.04F;
+constexpr float kAxisTipRadius = 0.015F;
+constexpr float kAxisSphereRadius = 0.015F;
+const Vector3 kUrdfDefaultAxis = {1.0F, 0.0F, 0.0F};
+
 // Platform-aware modifier label for menu shortcuts
 #ifdef __APPLE__
 constexpr const char* kModName = "Cmd";
@@ -341,6 +348,73 @@ void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
     rlDrawRenderBatchActive();
 }
 
+void App::drawJointAxis(const urdf::JointNodePtr& joint) {
+    // Only revolute, continuous, and prismatic joints have a meaningful axis
+    switch (joint->joint.type) {
+        case urdf::Joint::kRevolute:
+        case urdf::Joint::kContinuous:
+        case urdf::Joint::kPrismatic:
+            break;
+        default:
+            return;
+    }
+
+    // Compute world-space joint transform: w_T_j = w_T_p * p_T_j
+    const Matrix& w_t_p = joint->parent->w_T_l;
+    Matrix p_t_j = joint->joint.origin ? joint->joint.origin->toMatrix() : MatrixIdentity();
+    Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
+
+    Vector3 origin = urdf::PosFromMatrix(w_t_j);
+
+    // Rotate local axis into world space (strip translation to get rotation only)
+    Vector3 local_axis = joint->joint.axis ? joint->joint.axis->xyz : kUrdfDefaultAxis;
+    Matrix w_rot_j = w_t_j;
+    w_rot_j.m12 = 0.0F;
+    w_rot_j.m13 = 0.0F;
+    w_rot_j.m14 = 0.0F;
+    Vector3 world_axis = Vector3Normalize(Vector3Transform(local_axis, w_rot_j));
+
+    // Draw on top of everything (like gizmos)
+    rlDrawRenderBatchActive();
+    rlDisableDepthTest();
+
+    switch (joint->joint.type) {
+        case urdf::Joint::kRevolute:
+        case urdf::Joint::kContinuous: {
+            // Arrow: line + cone tip
+            float line_len = kAxisLength - kAxisTipLength;
+            Vector3 line_end = Vector3Add(origin, Vector3Scale(world_axis, line_len));
+            Vector3 tip_end = Vector3Add(origin, Vector3Scale(world_axis, kAxisLength));
+
+            DrawLine3D(origin, line_end, YELLOW);
+            DrawCylinderEx(line_end, tip_end, kAxisTipRadius, 0.0F, 8, YELLOW);
+            break;
+        }
+        case urdf::Joint::kPrismatic: {
+            // Line segment along axis between lower/upper limits, with spheres at endpoints
+            float lower = 0.0F;
+            float upper = kAxisLength;
+            if (joint->joint.limit && joint->joint.limit->upper > joint->joint.limit->lower) {
+                lower = joint->joint.limit->lower;
+                upper = joint->joint.limit->upper;
+            }
+
+            Vector3 start = Vector3Add(origin, Vector3Scale(world_axis, lower));
+            Vector3 end = Vector3Add(origin, Vector3Scale(world_axis, upper));
+
+            DrawLine3D(start, end, YELLOW);
+            DrawSphere(start, kAxisSphereRadius, YELLOW);
+            DrawSphere(end, kAxisSphereRadius, YELLOW);
+            break;
+        }
+        default:
+            break;
+    }
+
+    rlDrawRenderBatchActive();
+    rlEnableDepthTest();
+}
+
 void App::drawScene(Rectangle viewport) {
     ClearBackground(LIGHTGRAY);
     glClear(GL_STENCIL_BUFFER_BIT);
@@ -441,6 +515,10 @@ void App::drawScene(Rectangle viewport) {
 
     if (selected_link) {
         drawSelectionOutline(selected_link, viewport);
+    }
+
+    if (selected_joint) {
+        drawJointAxis(selected_joint);
     }
 
     if (selected_link and selected_link_origin_) {

@@ -110,7 +110,7 @@ file.
 - [x] 3D Gizmo for visual editing
 - [x] Mesh geometry support
 - [x] Material editor
-- [ ] Visualize joint movements
+- [x] Visualize joint axis
 
 # Contributing
 
