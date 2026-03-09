@@ -1,5 +1,6 @@
 #include <app.h>
 #include <fmt/format.h>
+#include <glad.h>
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <raygizmo.h>
@@ -44,6 +45,10 @@ constexpr float kGridLineColor = 0.75F;
 constexpr float kSidePanelWidth = 350.0F;
 constexpr float kRobotTableHeight = 300.0F;
 constexpr int kSupersamplingScale = 2;
+
+// Selection outline
+constexpr float kOutlineWidthPx = 5.0F;
+constexpr float kOutlineColor[4] = {1.0F, 0.65F, 0.0F, 1.0F};
 
 // Platform-aware modifier label for menu shortcuts
 #ifdef __APPLE__
@@ -96,6 +101,23 @@ static void cameraPan(Camera3D *camera, float dx, float dy) {
 static void cameraOrbit(Camera3D *camera, float dx, float dy) {
     CameraYaw(camera, dx, true);
     CameraPitch(camera, dy, true, true, false);
+}
+
+// Compute the center of the combined bounding box of all meshes in a model.
+static Vector3 getModelBoundingBoxCenter(const Model& model) {
+    BoundingBox bbox = GetMeshBoundingBox(model.meshes[0]);
+    for (int i = 1; i < model.meshCount; i++) {
+        BoundingBox mb = GetMeshBoundingBox(model.meshes[i]);
+        if (mb.min.x < bbox.min.x) bbox.min.x = mb.min.x;
+        if (mb.min.y < bbox.min.y) bbox.min.y = mb.min.y;
+        if (mb.min.z < bbox.min.z) bbox.min.z = mb.min.z;
+        if (mb.max.x > bbox.max.x) bbox.max.x = mb.max.x;
+        if (mb.max.y > bbox.max.y) bbox.max.y = mb.max.y;
+        if (mb.max.z > bbox.max.z) bbox.max.z = mb.max.z;
+    }
+    return {(bbox.min.x + bbox.max.x) * 0.5F,
+            (bbox.min.y + bbox.max.y) * 0.5F,
+            (bbox.min.z + bbox.max.z) * 0.5F};
 }
 
 static void updateCamera(Camera3D *camera) {
@@ -166,6 +188,13 @@ void App::setup() {
     camera_ = {kDefaultCameraPosition, kDefaultCameraTarget, kDefaultCameraUp, kDefaultCameraFov,
                0};
     bWindowShouldClose_ = false;
+
+    outline_shader_ =
+        LoadShader("./resources/shaders/outline.vs", "./resources/shaders/outline.fs");
+    outline_loc_width_ = GetShaderLocation(outline_shader_, "outlineWidth");
+    outline_loc_viewport_ = GetShaderLocation(outline_shader_, "viewportSize");
+    outline_loc_color_ = GetShaderLocation(outline_shader_, "outlineColor");
+    outline_loc_center_ = GetShaderLocation(outline_shader_, "objectCenter");
 
     gizmo_ = rgizmo_create();
 
@@ -254,8 +283,64 @@ void App::drawMenu() {
     rlImGuiEnd();
 }
 
+void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
+                               Rectangle viewport) {
+    if (link->visual_model.meshCount <= 0) return;
+
+    rlDrawRenderBatchActive();
+
+    // Pass 1: Fill stencil buffer with 1 where the selected mesh is drawn
+    glEnable(GL_STENCIL_TEST);
+    glDisable(GL_DEPTH_TEST);
+    glStencilFunc(GL_ALWAYS, 1, 0xFF);
+    glStencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
+    glStencilMask(0xFF);
+    glColorMask(GL_FALSE, GL_FALSE, GL_FALSE, GL_FALSE);
+    glDepthMask(GL_FALSE);
+
+    rlDrawRenderBatchActive();
+    DrawModel(link->visual_model, Vector3Zero(), 1.0F, WHITE);
+    rlDrawRenderBatchActive();
+
+    // Pass 2: Draw expanded mesh only where stencil != 1 (the border region)
+    glStencilFunc(GL_NOTEQUAL, 1, 0xFF);
+    glStencilMask(0x00);
+    glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
+
+    // Set outline shader uniforms (locations cached at load time)
+    float vp_size[2] = {viewport.width, viewport.height};
+    Vector3 center = getModelBoundingBoxCenter(link->visual_model);
+
+    SetShaderValue(outline_shader_, outline_loc_width_, &kOutlineWidthPx, SHADER_UNIFORM_FLOAT);
+    SetShaderValue(outline_shader_, outline_loc_viewport_, vp_size, SHADER_UNIFORM_VEC2);
+    SetShaderValue(outline_shader_, outline_loc_color_, kOutlineColor, SHADER_UNIFORM_VEC4);
+    SetShaderValue(outline_shader_, outline_loc_center_, &center, SHADER_UNIFORM_VEC3);
+
+    // Temporarily swap to outline shader for all materials
+    for (int i = 0; i < link->visual_model.materialCount; i++) {
+        link->visual_model.materials[i].shader = outline_shader_;
+    }
+
+    DrawModel(link->visual_model, Vector3Zero(), 1.0F, WHITE);
+
+    for (int i = 0; i < link->visual_model.materialCount; i++) {
+        link->visual_model.materials[i].shader = shader_;
+    }
+
+    rlDrawRenderBatchActive();
+
+    // Restore GL state
+    glDepthMask(GL_TRUE);
+    glEnable(GL_DEPTH_TEST);
+    glDisable(GL_STENCIL_TEST);
+    glStencilMask(0xFF);
+
+    rlDrawRenderBatchActive();
+}
+
 void App::drawScene(Rectangle viewport) {
     ClearBackground(LIGHTGRAY);
+    glClear(GL_STENCIL_BUFFER_BIT);
 
     // TODO(ramon): links can't be selected. Select instead visual, collision,
     // inertial and modify it's origin, if it exists. const auto selected_link =
@@ -351,6 +436,10 @@ void App::drawScene(Rectangle viewport) {
         robot_->draw(hovered_node, selected_link);
     }
 
+    if (selected_link) {
+        drawSelectionOutline(selected_link, viewport);
+    }
+
     if (selected_link and selected_link_origin_) {
         const Matrix &w_t_l = selected_link->w_T_l;
         Matrix l_t_o = selected_link_origin_->toMatrix();
@@ -372,6 +461,55 @@ void App::drawScene(Rectangle viewport) {
     EndMode3D();
 }
 
+void App::recreateSceneTexture(int width, int height) {
+    // Clean up existing resources
+    if (scene_texture_.id != 0) {
+        rlUnloadTexture(scene_texture_.texture.id);
+        rlUnloadFramebuffer(scene_texture_.id);
+    }
+    if (depth_stencil_rbo_ != 0) {
+        glDeleteRenderbuffers(1, &depth_stencil_rbo_);
+    }
+
+    scene_texture_ = {};
+    depth_stencil_rbo_ = 0;
+
+    scene_texture_.id = rlLoadFramebuffer();
+    if (scene_texture_.id > 0) {
+        rlEnableFramebuffer(scene_texture_.id);
+
+        // Color texture
+        scene_texture_.texture.id =
+            rlLoadTexture(nullptr, width, height, PIXELFORMAT_UNCOMPRESSED_R8G8B8A8, 1);
+        scene_texture_.texture.width = width;
+        scene_texture_.texture.height = height;
+        scene_texture_.texture.format = PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+        scene_texture_.texture.mipmaps = 1;
+
+        // Combined depth-stencil renderbuffer (required for stencil outline pass)
+        glGenRenderbuffers(1, &depth_stencil_rbo_);
+        glBindRenderbuffer(GL_RENDERBUFFER, depth_stencil_rbo_);
+        glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, width, height);
+        glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+        rlFramebufferAttach(scene_texture_.id, scene_texture_.texture.id,
+                            RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
+        rlFramebufferAttach(scene_texture_.id, depth_stencil_rbo_,
+                            RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_RENDERBUFFER, 0);
+        rlFramebufferAttach(scene_texture_.id, depth_stencil_rbo_,
+                            RL_ATTACHMENT_STENCIL, RL_ATTACHMENT_RENDERBUFFER, 0);
+
+        scene_texture_.depth.id = depth_stencil_rbo_;
+        scene_texture_.depth.width = width;
+        scene_texture_.depth.height = height;
+
+        rlFramebufferComplete(scene_texture_.id);
+        rlDisableFramebuffer();
+    }
+
+    SetTextureFilter(scene_texture_.texture, TEXTURE_FILTER_BILINEAR);
+}
+
 void App::draw() {
     // Compute viewport rect (right of side panel, below menu bar)
     int vp_w = GetScreenWidth() - static_cast<int>(kSidePanelWidth);
@@ -384,11 +522,9 @@ void App::draw() {
     int tex_w = vp_w * scale;
     int tex_h = vp_h * scale;
 
-    // Resize render texture if size changed
+    // Recreate FBO if viewport size changed
     if (tex_w != scene_texture_.texture.width || tex_h != scene_texture_.texture.height) {
-        if (scene_texture_.id != 0) UnloadRenderTexture(scene_texture_);
-        scene_texture_ = LoadRenderTexture(tex_w, tex_h);
-        SetTextureFilter(scene_texture_.texture, TEXTURE_FILTER_BILINEAR);
+        recreateSceneTexture(tex_w, tex_h);
     }
 
     // Viewport in window coordinates (for gizmo mouse mapping)
@@ -1085,9 +1221,16 @@ void App::inputTextUndoable(const char *label, std::string &str,
 }
 
 void App::cleanup() {
-    if (scene_texture_.id != 0) UnloadRenderTexture(scene_texture_);
+    if (scene_texture_.id != 0) {
+        rlUnloadTexture(scene_texture_.texture.id);
+        rlUnloadFramebuffer(scene_texture_.id);
+    }
+    if (depth_stencil_rbo_ != 0) {
+        glDeleteRenderbuffers(1, &depth_stencil_rbo_);
+    }
     UnloadShader(shader_);
+    UnloadShader(outline_shader_);
     rgizmo_unload();
-    rlImGuiShutdown();  // Close rl gui
-    CloseWindow();      // Close window and OpenGL context
+    rlImGuiShutdown();
+    CloseWindow();
 }

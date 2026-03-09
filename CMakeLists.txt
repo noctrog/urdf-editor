@@ -69,7 +69,7 @@ target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 file(GLOB SRC_FILES "src/*.cc")
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 
-target_include_directories(${PROJECT_NAME} PRIVATE include)
+target_include_directories(${PROJECT_NAME} PRIVATE include ${raylib_SOURCE_DIR}/src/external)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib imgui pugixml loguru nfd fmt assimp)
 

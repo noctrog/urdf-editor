@@ -25,7 +25,9 @@ class App {
     void draw();
     void drawMenu();
     void drawScene(Rectangle viewport);
+    void drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link, Rectangle viewport);
     void drawViewport();
+    void recreateSceneTexture(int width, int height);
     void cleanup();
 
     void drawToolbar();
@@ -55,11 +57,17 @@ class App {
 
     Camera camera_;
     Shader shader_;
+    Shader outline_shader_;
+    int outline_loc_width_ = -1;
+    int outline_loc_viewport_ = -1;
+    int outline_loc_color_ = -1;
+    int outline_loc_center_ = -1;
     std::shared_ptr<urdf::Robot> robot_;
 
     NFD::Guard nfdguard_;
 
     RenderTexture2D scene_texture_{};
+    unsigned int depth_stencil_rbo_ = 0;
     bool viewport_hovered_{false};
 
     bool bShowGrid_;
