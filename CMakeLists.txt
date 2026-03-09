@@ -1,6 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
 
-
 project(urdf-editor)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -78,3 +77,28 @@ target_include_directories(${PROJECT_NAME} PRIVATE include ${raylib_SOURCE_DIR}/
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib imgui pugixml loguru nfd fmt assimp)
 
 target_compile_options(${PROJECT_NAME} PUBLIC -Wall -Wfloat-conversion -pedantic)
+
+# Tests
+option(BUILD_TESTING "Build unit tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+
+    FetchContent_Declare(
+        doctest
+        GIT_REPOSITORY https://github.com/doctest/doctest.git
+        GIT_TAG v2.4.12
+    )
+    FetchContent_MakeAvailable(doctest)
+
+    add_executable(unit_tests
+        tests/test_main.cc
+        tests/test_urdf_parsing.cc
+        tests/test_origin_math.cc
+        src/robot.cc
+        src/import_mesh.cc
+    )
+    target_include_directories(unit_tests PRIVATE include ${raylib_SOURCE_DIR}/src/external)
+    target_link_libraries(unit_tests PRIVATE doctest::doctest raylib pugixml loguru fmt assimp)
+    target_compile_options(unit_tests PRIVATE -Wall -Wfloat-conversion -pedantic)
+    add_test(NAME unit_tests COMMAND unit_tests)
+endif()
