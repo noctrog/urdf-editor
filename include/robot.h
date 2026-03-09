@@ -260,6 +260,7 @@ class Robot {
     void forEveryJoint(const std::function<void(const JointNodePtr&)>& func) const;
 
     const std::map<std::string, Material>& getMaterials() const;
+    std::map<std::string, Material>& getMutableMaterials();
 
    private:
     static Matrix originToMatrix(std::optional<Origin>& origin);

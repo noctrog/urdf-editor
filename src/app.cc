@@ -11,6 +11,7 @@
 #include <rlights.h>
 #include <robot.h>
 
+#include <algorithm>
 #include <array>
 #include <functional>
 #include <loguru.hpp>
@@ -44,6 +45,8 @@ constexpr float kGridLineColor = 0.75F;
 // UI
 constexpr float kSidePanelWidth = 350.0F;
 constexpr float kRobotTableHeight = 300.0F;
+constexpr float kMaterialEditorReserveHeight = 200.0F;
+constexpr float kMinPropertiesHeight = 80.0F;
 constexpr int kSupersamplingScale = 2;
 
 // Selection outline
@@ -661,13 +664,13 @@ void App::drawRobotTree() {
     ImGuiTableFlags table_flags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
                                   ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
                                   ImGuiTableFlags_Hideable | ImGuiTableFlags_NoBordersInBody |
-                                  ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
+                                  ImGuiTableFlags_ScrollY;
 
     if (ImGui::BeginTable("robot table", 2, table_flags, ImVec2(0, kRobotTableHeight))) {
         ImGui::TableSetupColumn(
-            "Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 0.9F);
+            "Name", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 0.75F);
         ImGui::TableSetupColumn(
-            "Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthFixed, 0.1F);
+            "Type", ImGuiTableColumnFlags_NoHide | ImGuiTableColumnFlags_WidthStretch, 0.25F);
         ImGui::TableHeadersRow();
 
         if (not robot_) {
@@ -680,6 +683,9 @@ void App::drawRobotTree() {
             ImGuiTreeNodeFlags tree_flags = ImGuiTreeNodeFlags_DefaultOpen |
                                             ImGuiTreeNodeFlags_OpenOnArrow |
                                             ImGuiTreeNodeFlags_SpanAllColumns;
+
+            float orig_indent = ImGui::GetStyle().IndentSpacing;
+            ImGui::GetStyle().IndentSpacing = 10.0F;
 
             urdf::LinkNodePtr current_link = robot_->getRoot();
 
@@ -780,6 +786,8 @@ void App::drawRobotTree() {
             };
 
             recursion(current_link);
+
+            ImGui::GetStyle().IndentSpacing = orig_indent;
         }
 
         ImGui::EndTable();
@@ -797,7 +805,18 @@ void App::drawSideMenu() {
 
     drawRobotTree();
     ImGui::Separator();
-    drawNodeProperties();
+
+    // Scrollable properties region that fills space above the material editor
+    float avail = ImGui::GetContentRegionAvail().y;
+    float props_height = std::max(avail - kMaterialEditorReserveHeight, kMinPropertiesHeight);
+
+    if (ImGui::BeginChild("Properties", ImVec2(0, props_height))) {
+        drawNodeProperties();
+    }
+    ImGui::EndChild();
+
+    ImGui::Separator();
+    drawMaterialEditor();
 
     ImGui::End();
 }
@@ -837,7 +856,7 @@ void App::menuPropertiesVisual(urdf::LinkNodePtr link_node) {
         menuName(visual->name, "visual");
         menuOrigin(visual->origin);
         menuGeometry(visual->geometry, link_node->visual_model);
-        menuMaterial(visual->material_name);
+        menuMaterial(visual->material_name, link_node);
         ImGui::Separator();
         if (ImGui::Button("Delete visual component")) {
             command_buffer_.add(std::make_shared<DeleteVisualCommand>(link_node, robot_));
@@ -979,13 +998,45 @@ void App::menuOrigin(std::optional<urdf::Origin> &origin) {
     }
 }
 
-void App::menuMaterial(std::optional<std::string> &material_name, const char *label) {
+void App::menuMaterial(std::optional<std::string> &material_name,
+                       const urdf::LinkNodePtr &link) {
+    if (!robot_) return;
+
+    const auto &materials = robot_->getMaterials();
+
+    // Build list: index 0 = "(None)", then one entry per material
+    std::vector<std::string> names;
+    names.reserve(materials.size() + 1);
+    names.emplace_back("(None)");
+    for (const auto &[k, _] : materials) names.push_back(k);
+
+    int current = 0;
     if (material_name) {
-        inputTextUndoable("Material name", *material_name);
-    } else {
-        if (ImGui::Button("Create material")) {
-            command_buffer_.add(std::make_shared<CreateNameCommand>(material_name));
+        for (int i = 1; i < static_cast<int>(names.size()); ++i) {
+            if (names[i] == *material_name) {
+                current = i;
+                break;
+            }
         }
+    }
+
+    auto post = [this, link]() { robot_->updateMaterial(link); };
+
+    if (ImGui::Combo("Material", &current,
+                      [](void *data, int idx) -> const char * {
+                          return (*static_cast<std::vector<std::string> *>(data))[idx].c_str();
+                      },
+                      &names, static_cast<int>(names.size()))) {
+        auto old_val = material_name;
+        if (current == 0) {
+            material_name = std::nullopt;
+        } else {
+            material_name = names[current];
+        }
+        robot_->updateMaterial(link);
+        command_buffer_.add(
+            std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
+                material_name, old_val, material_name, post));
     }
 }
 
@@ -1217,6 +1268,179 @@ void App::inputTextUndoable(const char *label, std::string &str,
         command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::string>>(
             str, *snapshot_string_, str, post_action));
         snapshot_string_.reset();
+    }
+}
+
+void App::inputColorEdit4Undoable(const char *label, Vector4 &color,
+                                  std::function<void()> post_action) {
+    float c[4] = {color.x, color.y, color.z, color.w};
+    if (ImGui::ColorEdit4(label, c, ImGuiColorEditFlags_Float)) {
+        color = Vector4{c[0], c[1], c[2], c[3]};
+        if (post_action) post_action();
+    }
+    if (ImGui::IsItemActivated()) snapshot_vec4_ = color;
+    if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_vec4_) {
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<Vector4>>(
+            color, *snapshot_vec4_, color, post_action));
+        snapshot_vec4_.reset();
+    }
+}
+
+void App::updateLinksUsingMaterial(const std::string &material_name) {
+    robot_->forEveryLink([&](const urdf::LinkNodePtr &link) {
+        if (link->link.visual && link->link.visual->material_name &&
+            *link->link.visual->material_name == material_name) {
+            robot_->updateMaterial(link);
+        }
+    });
+}
+
+std::function<void()> App::materialUpdateAction(const std::string &material_name) {
+    return [this, material_name]() { updateLinksUsingMaterial(material_name); };
+}
+
+void App::drawMaterialEditor() {
+    if (!robot_) return;
+
+    if (!ImGui::CollapsingHeader("Materials", ImGuiTreeNodeFlags_DefaultOpen)) return;
+
+    auto& materials = robot_->getMutableMaterials();
+
+    if (ImGui::Button("+ New Material")) {
+        int idx = 0;
+        std::string name;
+        do {
+            name = fmt::format("Material_{}", idx++);
+        } while (materials.count(name) > 0);
+        urdf::Material mat;
+        mat.name = name;
+        mat.rgba = Vector4{0.5f, 0.5f, 0.5f, 1.0f};
+        command_buffer_.add(std::make_shared<AddMaterialCommand>(robot_, mat));
+    }
+
+    ImGui::Separator();
+
+    // Snapshot keys to iterate safely (commands may modify the map)
+    std::vector<std::string> keys;
+    keys.reserve(materials.size());
+    for (const auto& [k, _] : materials) keys.push_back(k);
+
+    for (const auto& key : keys) {
+        auto it = materials.find(key);
+        if (it == materials.end()) continue;
+        urdf::Material& mat = it->second;
+
+        ImGui::PushID(key.c_str());
+
+        bool want_delete = false;
+        bool header_open = ImGui::CollapsingHeader("##mat", ImGuiTreeNodeFlags_AllowOverlap);
+
+        ImGui::SameLine();
+        ImGui::Text("%s", key.c_str());
+
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - 40);
+        if (ImGui::SmallButton("Delete")) {
+            want_delete = true;
+        }
+
+        if (header_open) {
+            // --- Name (rename)
+            static char name_buf[256];
+            strncpy(name_buf, mat.name.c_str(), sizeof(name_buf) - 1);
+            name_buf[sizeof(name_buf) - 1] = '\0';
+            if (ImGui::InputText("Name", name_buf, sizeof(name_buf),
+                                 ImGuiInputTextFlags_EnterReturnsTrue)) {
+                std::string new_name(name_buf);
+                if (!new_name.empty() && new_name != mat.name && materials.count(new_name) == 0) {
+                    command_buffer_.add(
+                        std::make_shared<RenameMaterialCommand>(robot_, mat.name, new_name));
+                }
+            }
+
+            // --- Color
+            auto update_action = materialUpdateAction(key);
+            if (mat.rgba) {
+                inputColorEdit4Undoable("Color", *mat.rgba, update_action);
+
+                if (ImGui::Button("Remove Color")) {
+                    auto old_rgba = mat.rgba;
+                    mat.rgba = std::nullopt;
+                    command_buffer_.add(
+                        std::make_shared<UpdatePropertyCommand<std::optional<Vector4>>>(
+                            mat.rgba, old_rgba, std::nullopt, update_action));
+                }
+            } else {
+                if (ImGui::Button("Add Color")) {
+                    mat.rgba = Vector4{0.5f, 0.5f, 0.5f, 1.0f};
+                    command_buffer_.add(
+                        std::make_shared<UpdatePropertyCommand<std::optional<Vector4>>>(
+                            mat.rgba, std::nullopt, mat.rgba, update_action));
+                }
+            }
+
+            // --- Texture
+            auto openTextureDialog = [&]() -> std::optional<std::string> {
+                NFD::UniquePath out_path;
+                nfdfilteritem_t filter_item[1] = {{"Image", "png,jpg,jpeg,bmp,tga"}};
+                nfdresult_t result = NFD::OpenDialog(out_path, filter_item, 1);
+                if (result == NFD_OKAY) return std::string(out_path.get());
+                return std::nullopt;
+            };
+
+            if (mat.texture_file) {
+                ImGui::Text("Texture: %s", mat.texture_file->c_str());
+                ImGui::SameLine();
+                if (ImGui::SmallButton("...##tex")) {
+                    if (auto path = openTextureDialog()) {
+                        auto old_tex = mat.texture_file;
+                        mat.texture_file = *path;
+                        command_buffer_.add(
+                            std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
+                                mat.texture_file, old_tex, mat.texture_file));
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::SmallButton("x##tex")) {
+                    auto old_tex = mat.texture_file;
+                    mat.texture_file = std::nullopt;
+                    command_buffer_.add(
+                        std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
+                            mat.texture_file, old_tex, std::nullopt));
+                }
+            } else {
+                if (ImGui::Button("Add Texture")) {
+                    if (auto path = openTextureDialog()) {
+                        mat.texture_file = *path;
+                        command_buffer_.add(
+                            std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
+                                mat.texture_file, std::nullopt, mat.texture_file));
+                    }
+                }
+            }
+
+            // --- Used by
+            std::vector<std::string> used_by;
+            robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
+                if (link->link.visual && link->link.visual->material_name &&
+                    *link->link.visual->material_name == key) {
+                    used_by.push_back(link->link.name);
+                }
+            });
+            if (!used_by.empty()) {
+                std::string usage = "Used by: ";
+                for (size_t i = 0; i < used_by.size(); ++i) {
+                    if (i > 0) usage += ", ";
+                    usage += used_by[i];
+                }
+                ImGui::TextWrapped("%s", usage.c_str());
+            }
+        }
+
+        if (want_delete) {
+            command_buffer_.add(std::make_shared<DeleteMaterialCommand>(robot_, key));
+        }
+
+        ImGui::PopID();
     }
 }
 

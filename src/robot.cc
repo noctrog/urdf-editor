@@ -755,18 +755,20 @@ void Robot::updateMaterial(const LinkNodePtr& link) {
             static_cast<char>(color.w * kColorByteMax);
     };
 
+    if (!link->link.visual) return;
+
     if (link->link.visual->material_name) {
-        const Material& mat = materials_[*link->link.visual->material_name];
-        if (mat.rgba) {
-            set_material_diffuse_color(link->visual_model, *mat.rgba);
+        auto it = materials_.find(*link->link.visual->material_name);
+        if (it != materials_.end() && it->second.rgba) {
+            set_material_diffuse_color(link->visual_model, *it->second.rgba);
         } else {
-            set_material_diffuse_color(link->visual_model, Vector4{127, 127, 127, 255});
+            set_material_diffuse_color(link->visual_model, Vector4{0.5f, 0.5f, 0.5f, 1.0f});
             LOG_F(INFO,
                   "Link: %s. RGBA not found, using default color. Texture is not implemented yet.",
                   link->link.name.c_str());
         }
     } else {
-        set_material_diffuse_color(link->visual_model, Vector4{127, 127, 127, 255});
+        set_material_diffuse_color(link->visual_model, Vector4{0.5f, 0.5f, 0.5f, 1.0f});
         LOG_F(INFO, "Link: %s. No material name specified. Using default color",
               link->link.name.c_str());
     }
@@ -852,6 +854,8 @@ std::optional<HitResult> Robot::getLink(const Ray& ray) {
 }
 
 const std::map<std::string, Material>& Robot::getMaterials() const { return materials_; }
+
+std::map<std::string, Material>& Robot::getMutableMaterials() { return materials_; }
 
 void Robot::forEveryLink(const std::function<void(const LinkNodePtr&)>& func) const {
     std::deque<LinkNodePtr> deq{root_};

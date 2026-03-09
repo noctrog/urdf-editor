@@ -109,8 +109,8 @@ file.
 - [x] Drag and drop link (GUI URDF Tree)
 - [x] 3D Gizmo for visual editing
 - [x] Mesh geometry support
+- [x] Material editor
 - [ ] Visualize joint movements
-- [ ] Material editor
 
 # Contributing
 

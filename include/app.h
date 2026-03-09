@@ -34,6 +34,12 @@ class App {
     void drawRobotTree();
     void drawNodeProperties();
     void drawSideMenu();
+    void drawMaterialEditor();
+
+    // Update visual materials on all links that reference the given material name.
+    void updateLinksUsingMaterial(const std::string& material_name);
+    // Return a post_action closure that calls updateLinksUsingMaterial for the given name.
+    std::function<void()> materialUpdateAction(const std::string& material_name);
 
     void handleShortcuts();
     void openFile();
@@ -43,7 +49,7 @@ class App {
 
     void menuName(std::optional<std::string>& name, const char* label = "");
     void menuOrigin(std::optional<urdf::Origin>& origin);
-    void menuMaterial(std::optional<std::string>& material_name, const char* label = "");
+    void menuMaterial(std::optional<std::string>& material_name, const urdf::LinkNodePtr& link);
     void menuGeometry(urdf::Geometry& geometry, Model& model);
     void menuAxis(std::optional<urdf::Axis>& axis);
     void menuDynamics(std::optional<urdf::Dynamics>& dynamics);
@@ -93,6 +99,7 @@ class App {
     std::optional<Vector3> snapshot_vec3_;
     std::optional<std::string> snapshot_string_;
     std::optional<urdf::Origin> snapshot_origin_;
+    std::optional<Vector4> snapshot_vec4_;
 
     void inputFloatUndoable(const char* label, float& value, float step = 0, float step_fast = 0,
                             const char* fmt = "%.3f", std::function<void()> post_action = nullptr);
@@ -100,4 +107,6 @@ class App {
                              std::function<void()> post_action = nullptr);
     void inputTextUndoable(const char* label, std::string& str,
                            std::function<void()> post_action = nullptr);
+    void inputColorEdit4Undoable(const char* label, Vector4& color,
+                                 std::function<void()> post_action = nullptr);
 };

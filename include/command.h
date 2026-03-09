@@ -287,6 +287,44 @@ class UpdateGeometrySphereCommand : public Command {
     const Shader& shader_;
 };
 
+class AddMaterialCommand : public Command {
+   public:
+    AddMaterialCommand(urdf::RobotPtr& robot, urdf::Material material);
+    void execute() override;
+    void undo() override;
+
+   private:
+    urdf::RobotPtr& robot_;
+    urdf::Material material_;
+};
+
+class DeleteMaterialCommand : public Command {
+   public:
+    DeleteMaterialCommand(urdf::RobotPtr& robot, const std::string& name);
+    void execute() override;
+    void undo() override;
+
+   private:
+    urdf::RobotPtr& robot_;
+    std::string name_;
+    urdf::Material saved_material_;
+};
+
+class RenameMaterialCommand : public Command {
+   public:
+    RenameMaterialCommand(urdf::RobotPtr& robot, const std::string& old_name,
+                          const std::string& new_name);
+    void execute() override;
+    void undo() override;
+
+   private:
+    void renameMaterial(const std::string& from, const std::string& to);
+
+    urdf::RobotPtr& robot_;
+    std::string old_name_;
+    std::string new_name_;
+};
+
 class UpdateGeometryMeshCommand : public Command {
    public:
     UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>& mesh, const std::string& new_filename,

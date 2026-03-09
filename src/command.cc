@@ -310,6 +310,70 @@ void DeleteCollisionCommand::undo() {
                                    old_collision_.geometry.type->generateGeometry());
 }
 
+AddMaterialCommand::AddMaterialCommand(urdf::RobotPtr& robot, urdf::Material material)
+    : robot_(robot), material_(std::move(material)) {}
+
+void AddMaterialCommand::execute() { robot_->getMutableMaterials()[material_.name] = material_; }
+
+void AddMaterialCommand::undo() { robot_->getMutableMaterials().erase(material_.name); }
+
+DeleteMaterialCommand::DeleteMaterialCommand(urdf::RobotPtr& robot, const std::string& name)
+    : robot_(robot), name_(name) {}
+
+void DeleteMaterialCommand::execute() {
+    auto& materials = robot_->getMutableMaterials();
+    auto it = materials.find(name_);
+    if (it != materials.end()) {
+        saved_material_ = it->second;
+        materials.erase(it);
+    }
+    // Update visuals so affected links fall back to default grey
+    robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
+        if (link->link.visual && link->link.visual->material_name &&
+            *link->link.visual->material_name == name_) {
+            robot_->updateMaterial(link);
+        }
+    });
+}
+
+void DeleteMaterialCommand::undo() {
+    robot_->getMutableMaterials()[saved_material_.name] = saved_material_;
+    // Restore the material color on affected links
+    robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
+        if (link->link.visual && link->link.visual->material_name &&
+            *link->link.visual->material_name == name_) {
+            robot_->updateMaterial(link);
+        }
+    });
+}
+
+RenameMaterialCommand::RenameMaterialCommand(urdf::RobotPtr& robot, const std::string& old_name,
+                                             const std::string& new_name)
+    : robot_(robot), old_name_(old_name), new_name_(new_name) {}
+
+void RenameMaterialCommand::renameMaterial(const std::string& from, const std::string& to) {
+    auto& materials = robot_->getMutableMaterials();
+    auto it = materials.find(from);
+    if (it == materials.end()) return;
+
+    urdf::Material mat = it->second;
+    mat.name = to;
+    materials.erase(it);
+    materials[to] = mat;
+
+    robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
+        if (link->link.visual && link->link.visual->material_name &&
+            *link->link.visual->material_name == from) {
+            link->link.visual->material_name = to;
+            robot_->updateMaterial(link);
+        }
+    });
+}
+
+void RenameMaterialCommand::execute() { renameMaterial(old_name_, new_name_); }
+
+void RenameMaterialCommand::undo() { renameMaterial(new_name_, old_name_); }
+
 UpdateGeometryBoxCommand::UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& box,
                                                    const Vector3& old_size, Model& model,
                                                    const Shader& shader)
