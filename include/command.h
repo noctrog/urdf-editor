@@ -347,6 +347,22 @@ class DeleteMaterialCommand : public Command {
     urdf::Material saved_material_;
 };
 
+class RenameLinkCommand : public Command {
+   public:
+    RenameLinkCommand(urdf::RobotPtr& robot, urdf::LinkNodePtr link, const std::string& old_name,
+                      const std::string& new_name);
+    void execute() override;
+    void undo() override;
+
+   private:
+    void renameLink(const std::string& from, const std::string& to);
+
+    urdf::RobotPtr& robot_;
+    urdf::LinkNodePtr link_;
+    std::string old_name_;
+    std::string new_name_;
+};
+
 class RenameMaterialCommand : public Command {
    public:
     RenameMaterialCommand(urdf::RobotPtr& robot, const std::string& old_name,
@@ -360,6 +376,20 @@ class RenameMaterialCommand : public Command {
     urdf::RobotPtr& robot_;
     std::string old_name_;
     std::string new_name_;
+};
+
+class CloneSubtreeCommand : public Command {
+   public:
+    CloneSubtreeCommand(urdf::LinkNodePtr source, urdf::RobotPtr& robot, const Shader& shader);
+    void execute() override;
+    void undo() override;
+
+   private:
+    urdf::LinkNodePtr source_;
+    urdf::RobotPtr& robot_;
+    Shader shader_;
+    urdf::JointNodePtr cloned_joint_;
+    urdf::LinkNodePtr attach_parent_;
 };
 
 class UpdateGeometryMeshCommand : public Command {

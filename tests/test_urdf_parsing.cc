@@ -468,6 +468,69 @@ TEST_CASE("Inertial round-trip") {
     CHECK(link.inertial->inertia.iyz == doctest::Approx(0.03f));
 }
 
+// --- Validation tests ---
+
+// Returns true if any validation message matches the given level and contains the substring.
+static bool hasMessage(const std::vector<urdf::ValidationMessage>& msgs,
+                       urdf::ValidationMessage::Level level, const std::string& substring) {
+    for (const auto& m : msgs) {
+        if (m.level == level && m.message.find(substring) != std::string::npos) return true;
+    }
+    return false;
+}
+
+// Build a minimal robot with a single root link and one child joint+link.
+static urdf::RobotPtr buildTwoLinkRobot(const urdf::Joint& joint) {
+    auto root = std::make_shared<urdf::LinkNode>(urdf::Link("base_link"), nullptr);
+    auto child = std::make_shared<urdf::LinkNode>(urdf::Link("child_link"), nullptr);
+    auto joint_node = std::make_shared<urdf::JointNode>(joint, root, child);
+    child->parent = joint_node;
+    root->children.push_back(joint_node);
+    return std::make_shared<urdf::Robot>(root);
+}
+
+TEST_CASE("Validate: revolute joint missing limit is error") {
+    auto robot = buildTwoLinkRobot(urdf::Joint("j1", "base_link", "child_link", "revolute"));
+    auto msgs = robot->validate();
+    CHECK(hasMessage(msgs, urdf::ValidationMessage::kError, "limit"));
+}
+
+TEST_CASE("Validate: non-unit axis is warning") {
+    urdf::Joint j("j1", "base_link", "child_link", "fixed");
+    j.axis = urdf::Axis(Vector3{2.0f, 0.0f, 0.0f});
+    auto robot = buildTwoLinkRobot(j);
+    auto msgs = robot->validate();
+    CHECK(hasMessage(msgs, urdf::ValidationMessage::kWarning, "unit"));
+}
+
+TEST_CASE("Validate: valid robot has no messages") {
+    auto root = std::make_shared<urdf::LinkNode>(urdf::Link("base_link"), nullptr);
+    auto robot = std::make_shared<urdf::Robot>(root);
+    auto msgs = robot->validate();
+    CHECK(msgs.empty());
+}
+
+TEST_CASE("Validate: duplicate link names") {
+    auto root = std::make_shared<urdf::LinkNode>(urdf::Link("base_link"), nullptr);
+    auto child = std::make_shared<urdf::LinkNode>(urdf::Link("base_link"), nullptr);
+    auto joint_node = std::make_shared<urdf::JointNode>(
+        urdf::Joint("j1", "base_link", "base_link", "fixed"), root, child);
+    child->parent = joint_node;
+    root->children.push_back(joint_node);
+
+    auto robot = std::make_shared<urdf::Robot>(root);
+    auto msgs = robot->validate();
+    CHECK(hasMessage(msgs, urdf::ValidationMessage::kError, "Duplicate link"));
+}
+
+TEST_CASE("Validate: limit lower >= upper is warning") {
+    urdf::Joint j("j1", "base_link", "child_link", "revolute");
+    j.limit = urdf::Limit(1.0f, 0.5f, 10.0f, 2.0f);  // lower > upper
+    auto robot = buildTwoLinkRobot(j);
+    auto msgs = robot->validate();
+    CHECK(hasMessage(msgs, urdf::ValidationMessage::kWarning, "lower"));
+}
+
 TEST_CASE("Inline material reference-only not promoted") {
     const char* xml = R"(
         <robot name="test">

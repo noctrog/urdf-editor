@@ -291,6 +291,41 @@ void App::drawMenu() {
     drawSideMenu();
     drawViewport();
 
+    // Validation popup (triggered by saveFile)
+    if (pending_save_) {
+        ImGui::OpenPopup("Validation");
+        pending_save_ = false;
+    }
+    if (ImGui::BeginPopupModal("Validation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        bool has_errors = false;
+        for (const auto& msg : validation_results_) {
+            if (msg.level == urdf::ValidationMessage::kError) {
+                has_errors = true;
+                ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "Error: %s", msg.message.c_str());
+            } else {
+                ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Warning: %s", msg.message.c_str());
+            }
+        }
+        ImGui::Separator();
+        if (has_errors) {
+            ImGui::Text("Errors must be fixed before saving.");
+            if (ImGui::Button("OK")) {
+                ImGui::CloseCurrentPopup();
+            }
+        } else {
+            if (ImGui::Button("Save anyway")) {
+                exportRobot(*robot_, pending_save_path_);
+                LOG_F(INFO, "Saved with warnings: %s", pending_save_path_.c_str());
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel")) {
+                ImGui::CloseCurrentPopup();
+            }
+        }
+        ImGui::EndPopup();
+    }
+
     rlImGuiEnd();
 }
 
@@ -649,8 +684,14 @@ void App::saveFile() {
     nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf"}};
     nfdresult_t result = NFD::SaveDialog(out_path, filter_item, 1);
     if (result == NFD_OKAY) {
-        LOG_F(INFO, "Success! %s", out_path.get());
-        exportRobot(*robot_, out_path.get());
+        validation_results_ = robot_->validate();
+        if (validation_results_.empty()) {
+            LOG_F(INFO, "Success! %s", out_path.get());
+            exportRobot(*robot_, out_path.get());
+        } else {
+            pending_save_ = true;
+            pending_save_path_ = out_path.get();
+        }
     } else if (result == NFD_CANCEL) {
         LOG_F(INFO, "User pressed cancel.");
     } else {
@@ -740,6 +781,11 @@ void App::drawToolbar() {
                                 link_node != nullptr)) {
                 command_buffer_.add(
                     std::make_shared<CreateJointCommand>("New Joint", link_node, robot_));
+            }
+            bool can_duplicate = link_node && link_node->parent;
+            if (ImGui::MenuItem("Duplicate", nullptr, false, can_duplicate)) {
+                command_buffer_.add(
+                    std::make_shared<CloneSubtreeCommand>(link_node, robot_, shader_));
             }
             // Enable delete when a joint is selected, or a non-root link
             bool is_joint = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_) != nullptr;
@@ -967,6 +1013,25 @@ void App::drawNodeProperties() {
     if (not selected_node_ or not robot_) return;
 
     if (auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
+        // Link name (with rename command that cascades to joints)
+        static char link_name_buf[256];
+        strncpy(link_name_buf, link_node->link.name.c_str(), sizeof(link_name_buf) - 1);
+        link_name_buf[sizeof(link_name_buf) - 1] = '\0';
+        if (ImGui::InputText("Name##link", link_name_buf, sizeof(link_name_buf),
+                             ImGuiInputTextFlags_EnterReturnsTrue)) {
+            std::string new_name(link_name_buf);
+            if (!new_name.empty() && new_name != link_node->link.name) {
+                bool duplicate = false;
+                robot_->forEveryLink([&](const urdf::LinkNodePtr& l) {
+                    if (l != link_node && l->link.name == new_name) duplicate = true;
+                });
+                if (!duplicate) {
+                    command_buffer_.add(std::make_shared<RenameLinkCommand>(
+                        robot_, link_node, link_node->link.name, new_name));
+                }
+            }
+        }
+
         if (ImGui::BeginTabBar("PropertiesBar",
                                ImGuiTabBarFlags_FittingPolicyScroll |
                                    ImGuiTabBarFlags_NoCloseWithMiddleMouseButton)) {
@@ -1036,11 +1101,16 @@ void App::drawNodeProperties() {
             pending_tab_ = -1;
         }
 
-        // Non-root links can be deleted (deletes parent joint + subtree)
+        // Non-root links can be deleted or duplicated
         if (link_node->parent) {
             ImGui::Separator();
             if (ImGui::Button("Delete link")) {
                 deleteSelectedJoint();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Duplicate link")) {
+                command_buffer_.add(
+                    std::make_shared<CloneSubtreeCommand>(link_node, robot_, shader_));
             }
         }
     } else if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {

@@ -391,6 +391,22 @@ void DeleteMaterialCommand::undo() {
     });
 }
 
+RenameLinkCommand::RenameLinkCommand(urdf::RobotPtr& robot, urdf::LinkNodePtr link,
+                                     const std::string& old_name, const std::string& new_name)
+    : robot_(robot), link_(std::move(link)), old_name_(old_name), new_name_(new_name) {}
+
+void RenameLinkCommand::renameLink(const std::string& from, const std::string& to) {
+    link_->link.name = to;
+    robot_->forEveryJoint([&](const urdf::JointNodePtr& joint) {
+        if (joint->joint.parent == from) joint->joint.parent = to;
+        if (joint->joint.child == from) joint->joint.child = to;
+    });
+}
+
+void RenameLinkCommand::execute() { renameLink(old_name_, new_name_); }
+
+void RenameLinkCommand::undo() { renameLink(new_name_, old_name_); }
+
 RenameMaterialCommand::RenameMaterialCommand(urdf::RobotPtr& robot, const std::string& old_name,
                                              const std::string& new_name)
     : robot_(robot), old_name_(old_name), new_name_(new_name) {}
@@ -418,6 +434,53 @@ void RenameMaterialCommand::renameMaterial(const std::string& from, const std::s
 void RenameMaterialCommand::execute() { renameMaterial(old_name_, new_name_); }
 
 void RenameMaterialCommand::undo() { renameMaterial(new_name_, old_name_); }
+
+CloneSubtreeCommand::CloneSubtreeCommand(urdf::LinkNodePtr source, urdf::RobotPtr& robot,
+                                         const Shader& shader)
+    : source_(std::move(source)), robot_(robot), shader_(shader) {}
+
+void CloneSubtreeCommand::execute() {
+    if (!source_->parent) return;
+    attach_parent_ = source_->parent->parent;
+
+    if (cloned_joint_) {
+        // Re-execute (redo): re-insert the previously cloned joint
+        attach_parent_->children.push_back(cloned_joint_);
+    } else {
+        cloned_joint_ = urdf::cloneSubtree(source_, attach_parent_, robot_);
+        if (!cloned_joint_) return;
+        attach_parent_->children.push_back(cloned_joint_);
+
+        // Generate geometry for all cloned links
+        std::deque<urdf::LinkNodePtr> deq{cloned_joint_->child};
+        while (!deq.empty()) {
+            auto link = deq.front();
+            deq.pop_front();
+
+            for (const auto& vis : link->link.visual) {
+                Model model = vis.geometry.type->generateGeometry();
+                model.materials[0].shader = shader_;
+                link->visual_models.push_back(model);
+            }
+            robot_->updateMaterial(link);
+            for (const auto& col : link->link.collision) {
+                link->collision_models.push_back(col.geometry.type->generateGeometry());
+            }
+            for (const auto& j : link->children) {
+                deq.push_back(j->child);
+            }
+        }
+    }
+
+    robot_->forwardKinematics();
+}
+
+void CloneSubtreeCommand::undo() {
+    if (!cloned_joint_ || !attach_parent_) return;
+    auto& children = attach_parent_->children;
+    children.erase(std::find(children.begin(), children.end(), cloned_joint_));
+    robot_->forwardKinematics();
+}
 
 UpdateGeometryBoxCommand::UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& box,
                                                    const Vector3& old_size, Model& model,

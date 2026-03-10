@@ -90,6 +90,11 @@ class App {
 
     int pending_tab_ = -1;  // -1=none, 0..N-1=visual index, N..=collision index + N
 
+    // Validation state for save
+    std::vector<urdf::ValidationMessage> validation_results_;
+    bool pending_save_ = false;
+    std::string pending_save_path_;
+
     RGizmo gizmo_;
 
     // Gizmo undo tracking

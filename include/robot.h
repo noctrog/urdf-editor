@@ -248,6 +248,11 @@ struct JointNode : TreeNode {
     LinkNodePtr child;
 };
 
+struct ValidationMessage {
+    enum Level { kError, kWarning } level;
+    std::string message;
+};
+
 class Robot {
    public:
     explicit Robot(LinkNodePtr root, const std::map<std::string, Material>& materials = {});
@@ -273,6 +278,8 @@ class Robot {
     void forEveryLink(const std::function<void(const LinkNodePtr&)>& func) const;
     void forEveryJoint(const std::function<void(const JointNodePtr&)>& func) const;
 
+    std::vector<ValidationMessage> validate() const;
+
     const std::map<std::string, Material>& getMaterials() const;
     std::map<std::string, Material>& getMutableMaterials();
 
@@ -289,6 +296,10 @@ class Robot {
 };
 
 using RobotPtr = std::shared_ptr<Robot>;
+
+GeometryTypePtr cloneGeometry(const GeometryTypePtr& src);
+JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_parent,
+                          const RobotPtr& robot);
 
 RobotPtr buildRobot(const char* urdf_file);
 

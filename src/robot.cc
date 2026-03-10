@@ -6,6 +6,7 @@
 #include <robot.h>
 
 #include <cfloat>
+#include <cmath>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -223,6 +224,100 @@ void LinkNode::deleteCollision(int i) {
 
 JointNode::JointNode(Joint joint, LinkNodePtr parent, LinkNodePtr child)
     : joint(std::move(joint)), parent(std::move(parent)), child(std::move(child)) {}
+
+GeometryTypePtr cloneGeometry(const GeometryTypePtr& src) {
+    if (auto box = std::dynamic_pointer_cast<Box>(src)) {
+        return std::make_shared<Box>(box->size);
+    }
+    if (auto cyl = std::dynamic_pointer_cast<Cylinder>(src)) {
+        auto c = std::make_shared<Cylinder>();
+        c->radius = cyl->radius;
+        c->length = cyl->length;
+        return c;
+    }
+    if (auto sph = std::dynamic_pointer_cast<Sphere>(src)) {
+        return std::make_shared<Sphere>(sph->radius);
+    }
+    if (auto mesh = std::dynamic_pointer_cast<Mesh>(src)) {
+        return std::make_shared<Mesh>(mesh->filename.c_str(), mesh->resolved_path, mesh->scale);
+    }
+    return nullptr;
+}
+
+static std::string deduplicateName(const std::string& base, const std::set<std::string>& existing) {
+    if (existing.count(base) == 0) return base;
+    std::string candidate = base + "_copy";
+    if (existing.count(candidate) == 0) return candidate;
+    for (int i = 2;; ++i) {
+        candidate = base + "_copy" + std::to_string(i);
+        if (existing.count(candidate) == 0) return candidate;
+    }
+}
+
+JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_parent,
+                          const RobotPtr& robot) {
+    // Collect all existing names
+    std::set<std::string> link_names;
+    std::set<std::string> joint_names;
+    robot->forEveryLink([&](const LinkNodePtr& l) { link_names.insert(l->link.name); });
+    robot->forEveryJoint([&](const JointNodePtr& j) { joint_names.insert(j->joint.name); });
+
+    // Recursive clone
+    std::function<JointNodePtr(const JointNodePtr&, const LinkNodePtr&)> recurse =
+        [&](const JointNodePtr& src_joint, const LinkNodePtr& new_parent) -> JointNodePtr {
+        const LinkNodePtr& src_link = src_joint->child;
+
+        // Clone link data
+        Link new_link;
+        std::string link_name = deduplicateName(src_link->link.name, link_names);
+        link_names.insert(link_name);
+        new_link.name = link_name;
+        new_link.inertial = src_link->link.inertial;
+
+        for (const Visual& vis : src_link->link.visual) {
+            Visual new_vis = vis;
+            new_vis.geometry.type = cloneGeometry(vis.geometry.type);
+            new_link.visual.push_back(new_vis);
+        }
+        for (const Collision& col : src_link->link.collision) {
+            Collision new_col = col;
+            new_col.geometry.type = cloneGeometry(col.geometry.type);
+            new_link.collision.push_back(new_col);
+        }
+
+        auto new_link_node = std::make_shared<LinkNode>(std::move(new_link), nullptr);
+
+        // Clone joint data
+        std::string jname = deduplicateName(src_joint->joint.name, joint_names);
+        joint_names.insert(jname);
+        Joint new_joint(jname.c_str(), new_parent->link.name.c_str(),
+                        new_link_node->link.name.c_str(), "fixed");
+        new_joint.type = src_joint->joint.type;
+        new_joint.origin = src_joint->joint.origin;
+        new_joint.axis = src_joint->joint.axis;
+        new_joint.dynamics = src_joint->joint.dynamics;
+        new_joint.limit = src_joint->joint.limit;
+        new_joint.mimic = src_joint->joint.mimic;
+        new_joint.calibration = src_joint->joint.calibration;
+
+        auto new_joint_node =
+            std::make_shared<JointNode>(std::move(new_joint), new_parent, new_link_node);
+        new_link_node->parent = new_joint_node;
+
+        // Recurse into children
+        for (const auto& child_joint : src_link->children) {
+            auto cloned_child = recurse(child_joint, new_link_node);
+            new_link_node->children.push_back(cloned_child);
+        }
+
+        return new_joint_node;
+    };
+
+    // The source link must have a parent joint — clone from that joint's perspective
+    // but attach to attach_parent
+    if (!source->parent) return nullptr;
+    return recurse(source->parent, attach_parent);
+}
 
 RobotPtr buildRobot(const char* urdf_file) {
     pugi::xml_document doc;
@@ -898,6 +993,92 @@ std::optional<HitResult> Robot::getLink(const Ray& ray) {
     });
 
     return result;
+}
+
+std::vector<ValidationMessage> Robot::validate() const {
+    std::vector<ValidationMessage> msgs;
+
+    // Collect link names and check for duplicates/empty
+    std::map<std::string, int> link_name_counts;
+    forEveryLink([&](const LinkNodePtr& link) { link_name_counts[link->link.name]++; });
+    for (const auto& [name, count] : link_name_counts) {
+        if (name.empty()) {
+            msgs.push_back({ValidationMessage::kError, "Empty link name found"});
+        }
+        if (count > 1) {
+            msgs.push_back(
+                {ValidationMessage::kError, fmt::format("Duplicate link name: '{}'", name)});
+        }
+    }
+
+    // Collect joint names and check for duplicates/empty
+    std::map<std::string, int> joint_name_counts;
+    forEveryJoint([&](const JointNodePtr& joint) { joint_name_counts[joint->joint.name]++; });
+    for (const auto& [name, count] : joint_name_counts) {
+        if (name.empty()) {
+            msgs.push_back({ValidationMessage::kError, "Empty joint name found"});
+        }
+        if (count > 1) {
+            msgs.push_back(
+                {ValidationMessage::kError, fmt::format("Duplicate joint name: '{}'", name)});
+        }
+    }
+
+    // Joint-level checks
+    forEveryJoint([&](const JointNodePtr& jn) {
+        const Joint& j = jn->joint;
+
+        // Revolute/prismatic require limit
+        if ((j.type == Joint::kRevolute || j.type == Joint::kPrismatic) && !j.limit) {
+            msgs.push_back({ValidationMessage::kError,
+                            fmt::format("Joint '{}': revolute/prismatic requires <limit>", j.name)});
+        }
+
+        // Non-unit axis
+        if (j.axis) {
+            float len = Vector3Length(j.axis->xyz);
+            if (std::abs(len - 1.0f) > 0.01f) {
+                msgs.push_back({ValidationMessage::kWarning,
+                                fmt::format("Joint '{}': axis vector not unit length ({:.3f})",
+                                            j.name, len)});
+            }
+        }
+
+        // Limit lower >= upper
+        if (j.limit && j.limit->lower >= j.limit->upper) {
+            msgs.push_back({ValidationMessage::kWarning,
+                            fmt::format("Joint '{}': limit lower ({}) >= upper ({})", j.name,
+                                        j.limit->lower, j.limit->upper)});
+        }
+
+        // Mimic references non-existent joint
+        if (j.mimic && joint_name_counts.count(j.mimic->joint) == 0) {
+            msgs.push_back({ValidationMessage::kWarning,
+                            fmt::format("Joint '{}': mimic references non-existent joint '{}'",
+                                        j.name, j.mimic->joint)});
+        }
+    });
+
+    // Link-level checks
+    forEveryLink([&](const LinkNodePtr& ln) {
+        // Zero or negative mass
+        if (ln->link.inertial && ln->link.inertial->mass <= 0.0f) {
+            msgs.push_back({ValidationMessage::kWarning,
+                            fmt::format("Link '{}': zero or negative mass", ln->link.name)});
+        }
+
+        // Visual references non-existent material
+        for (const auto& vis : ln->link.visual) {
+            if (vis.material_name && materials_.count(*vis.material_name) == 0) {
+                msgs.push_back(
+                    {ValidationMessage::kWarning,
+                     fmt::format("Link '{}': visual references non-existent material '{}'",
+                                 ln->link.name, *vis.material_name)});
+            }
+        }
+    });
+
+    return msgs;
 }
 
 const std::map<std::string, Material>& Robot::getMaterials() const { return materials_; }
