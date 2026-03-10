@@ -154,16 +154,16 @@ TEST_CASE("Link with visual and collision") {
     urdf::Link link = urdf::xmlNodeToLink(node);
     CHECK(link.name == "my_link");
 
-    REQUIRE(link.visual.has_value());
-    REQUIRE(link.visual->origin.has_value());
-    CHECK(link.visual->origin->xyz.x == doctest::Approx(0.1f));
-    CHECK(link.visual->origin->xyz.y == doctest::Approx(0.2f));
-    CHECK(link.visual->origin->xyz.z == doctest::Approx(0.3f));
+    REQUIRE(link.visual.size() == 1);
+    REQUIRE(link.visual[0].origin.has_value());
+    CHECK(link.visual[0].origin->xyz.x == doctest::Approx(0.1f));
+    CHECK(link.visual[0].origin->xyz.y == doctest::Approx(0.2f));
+    CHECK(link.visual[0].origin->xyz.z == doctest::Approx(0.3f));
 
-    REQUIRE(link.visual->material_name.has_value());
-    CHECK(*link.visual->material_name == "blue");
+    REQUIRE(link.visual[0].material_name.has_value());
+    CHECK(*link.visual[0].material_name == "blue");
 
-    auto box = std::dynamic_pointer_cast<urdf::Box>(link.visual->geometry.type);
+    auto box = std::dynamic_pointer_cast<urdf::Box>(link.visual[0].geometry.type);
     REQUIRE(box);
     CHECK(box->size.x == doctest::Approx(1.0f));
     CHECK(box->size.y == doctest::Approx(2.0f));
@@ -179,9 +179,9 @@ TEST_CASE("Link with visual and collision") {
     // Parse back
     urdf::Link link2 = urdf::xmlNodeToLink(out_node);
     CHECK(link2.name == "my_link");
-    REQUIRE(link2.visual.has_value());
-    REQUIRE(link2.visual->material_name.has_value());
-    CHECK(*link2.visual->material_name == "blue");
+    REQUIRE(link2.visual.size() == 1);
+    REQUIRE(link2.visual[0].material_name.has_value());
+    CHECK(*link2.visual[0].material_name == "blue");
     CHECK(link2.collision.size() == 1);
 }
 
@@ -230,4 +230,271 @@ TEST_CASE("findRoot identifies root link") {
     pugi::xml_node root = urdf::findRoot(doc);
     REQUIRE_FALSE(root.empty());
     CHECK(std::string(root.attribute("name").as_string()) == "base_link");
+}
+
+TEST_CASE("Joint mimic round-trip") {
+    const char* xml = R"(
+        <joint name="j1" type="revolute">
+            <parent link="base"/>
+            <child link="arm"/>
+            <mimic joint="j0" multiplier="2.5" offset="0.1"/>
+        </joint>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+    urdf::Joint joint = urdf::xmlNodeToJoint(doc.first_child());
+
+    REQUIRE(joint.mimic.has_value());
+    CHECK(joint.mimic->joint == "j0");
+    CHECK(joint.mimic->multiplier == doctest::Approx(2.5f));
+    CHECK(joint.mimic->offset == doctest::Approx(0.1f));
+
+    // Export and re-parse
+    pugi::xml_document out_doc;
+    pugi::xml_node out_node = out_doc.append_child("joint");
+    urdf::jointToXmlNode(out_node, joint);
+
+    urdf::Joint j2 = urdf::xmlNodeToJoint(out_node);
+    REQUIRE(j2.mimic.has_value());
+    CHECK(j2.mimic->joint == "j0");
+    CHECK(j2.mimic->multiplier == doctest::Approx(2.5f));
+    CHECK(j2.mimic->offset == doctest::Approx(0.1f));
+}
+
+TEST_CASE("Joint mimic defaults") {
+    const char* xml = R"(
+        <joint name="j1" type="revolute">
+            <parent link="base"/>
+            <child link="arm"/>
+            <mimic joint="j0"/>
+        </joint>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+    urdf::Joint joint = urdf::xmlNodeToJoint(doc.first_child());
+
+    REQUIRE(joint.mimic.has_value());
+    CHECK(joint.mimic->joint == "j0");
+    CHECK(joint.mimic->multiplier == doctest::Approx(1.0f));
+    CHECK(joint.mimic->offset == doctest::Approx(0.0f));
+}
+
+TEST_CASE("Joint calibration round-trip") {
+    const char* xml = R"(
+        <joint name="j1" type="revolute">
+            <parent link="base"/>
+            <child link="arm"/>
+            <calibration rising="1.5" falling="2.5"/>
+        </joint>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+    urdf::Joint joint = urdf::xmlNodeToJoint(doc.first_child());
+
+    REQUIRE(joint.calibration.has_value());
+    CHECK(joint.calibration->rising == doctest::Approx(1.5f));
+    CHECK(joint.calibration->falling == doctest::Approx(2.5f));
+
+    // Export and re-parse
+    pugi::xml_document out_doc;
+    pugi::xml_node out_node = out_doc.append_child("joint");
+    urdf::jointToXmlNode(out_node, joint);
+
+    urdf::Joint j2 = urdf::xmlNodeToJoint(out_node);
+    REQUIRE(j2.calibration.has_value());
+    CHECK(j2.calibration->rising == doctest::Approx(1.5f));
+    CHECK(j2.calibration->falling == doctest::Approx(2.5f));
+}
+
+TEST_CASE("Mesh scale round-trip") {
+    const char* xml = R"(
+        <geometry>
+            <mesh filename="robot.stl" scale="2 3 4"/>
+        </geometry>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+    urdf::Geometry geom = urdf::xmlNodeToGeometry(doc.first_child());
+
+    auto mesh = std::dynamic_pointer_cast<urdf::Mesh>(geom.type);
+    REQUIRE(mesh);
+    CHECK(mesh->filename == "robot.stl");
+    CHECK(mesh->scale.x == doctest::Approx(2.0f));
+    CHECK(mesh->scale.y == doctest::Approx(3.0f));
+    CHECK(mesh->scale.z == doctest::Approx(4.0f));
+
+    // Export and re-parse
+    pugi::xml_document out_doc;
+    pugi::xml_node out_node = out_doc.append_child("geometry");
+    urdf::geometryToXmlNode(out_node, geom);
+
+    urdf::Geometry geom2 = urdf::xmlNodeToGeometry(out_node);
+    auto mesh2 = std::dynamic_pointer_cast<urdf::Mesh>(geom2.type);
+    REQUIRE(mesh2);
+    CHECK(mesh2->scale.x == doctest::Approx(2.0f));
+    CHECK(mesh2->scale.y == doctest::Approx(3.0f));
+    CHECK(mesh2->scale.z == doctest::Approx(4.0f));
+}
+
+TEST_CASE("Mesh default scale not exported") {
+    urdf::Geometry geom;
+    geom.type = std::make_shared<urdf::Mesh>("test.stl");
+
+    pugi::xml_document doc;
+    pugi::xml_node node = doc.append_child("geometry");
+    urdf::geometryToXmlNode(node, geom);
+
+    // scale attribute should not be present when it's the default {1,1,1}
+    CHECK_FALSE(node.child("mesh").attribute("scale"));
+}
+
+TEST_CASE("Multiple visuals per link") {
+    const char* xml = R"(
+        <link name="multi_vis_link">
+            <visual>
+                <geometry><box size="1 1 1"/></geometry>
+                <material name="red"/>
+            </visual>
+            <visual>
+                <origin xyz="0 0 1" rpy="0 0 0"/>
+                <geometry><sphere radius="0.5"/></geometry>
+                <material name="blue"/>
+            </visual>
+        </link>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+    urdf::Link link = urdf::xmlNodeToLink(doc.first_child());
+
+    REQUIRE(link.visual.size() == 2);
+
+    auto box = std::dynamic_pointer_cast<urdf::Box>(link.visual[0].geometry.type);
+    REQUIRE(box);
+    CHECK(box->size.x == doctest::Approx(1.0f));
+    REQUIRE(link.visual[0].material_name.has_value());
+    CHECK(*link.visual[0].material_name == "red");
+
+    auto sphere = std::dynamic_pointer_cast<urdf::Sphere>(link.visual[1].geometry.type);
+    REQUIRE(sphere);
+    CHECK(sphere->radius == doctest::Approx(0.5f));
+    REQUIRE(link.visual[1].origin.has_value());
+    CHECK(link.visual[1].origin->xyz.z == doctest::Approx(1.0f));
+    REQUIRE(link.visual[1].material_name.has_value());
+    CHECK(*link.visual[1].material_name == "blue");
+
+    // Export and re-parse
+    pugi::xml_document out_doc;
+    pugi::xml_node out_node = out_doc.append_child("link");
+    urdf::linkToXmlNode(out_node, link);
+
+    urdf::Link link2 = urdf::xmlNodeToLink(out_node);
+    REQUIRE(link2.visual.size() == 2);
+    CHECK(std::dynamic_pointer_cast<urdf::Box>(link2.visual[0].geometry.type));
+    CHECK(std::dynamic_pointer_cast<urdf::Sphere>(link2.visual[1].geometry.type));
+    REQUIRE(link2.visual[0].material_name.has_value());
+    CHECK(*link2.visual[0].material_name == "red");
+    REQUIRE(link2.visual[1].material_name.has_value());
+    CHECK(*link2.visual[1].material_name == "blue");
+}
+
+TEST_CASE("Inline material promotion") {
+    const char* xml = R"(
+        <robot name="test">
+            <link name="base_link">
+                <visual>
+                    <geometry><box size="1 1 1"/></geometry>
+                    <material name="inline_red">
+                        <color rgba="1 0 0 1"/>
+                    </material>
+                </visual>
+            </link>
+        </robot>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+
+    // Simulate the inline material promotion logic from buildRobot
+    std::map<std::string, urdf::Material> materials;
+    for (const pugi::xml_node& link : doc.child("robot").children("link")) {
+        for (const pugi::xml_node& vis : link.children("visual")) {
+            const pugi::xml_node& mat_node = vis.child("material");
+            if (mat_node && (mat_node.child("color") || mat_node.child("texture"))) {
+                if (const auto m = urdf::xmlNodeToMaterial(mat_node)) {
+                    materials.insert({m->name, *m});
+                }
+            }
+        }
+    }
+
+    REQUIRE(materials.count("inline_red") == 1);
+    REQUIRE(materials["inline_red"].rgba.has_value());
+    CHECK(materials["inline_red"].rgba->x == doctest::Approx(1.0f));
+    CHECK(materials["inline_red"].rgba->y == doctest::Approx(0.0f));
+}
+
+TEST_CASE("Inertial round-trip") {
+    const char* xml = R"(
+        <link name="test_link">
+            <inertial>
+                <origin xyz="1 2 3" rpy="0.1 0.2 0.3"/>
+                <mass value="5.0"/>
+                <inertia ixx="0.1" iyy="0.2" izz="0.3" ixy="0.01" ixz="0.02" iyz="0.03"/>
+            </inertial>
+        </link>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+    pugi::xml_node node = doc.first_child();
+
+    urdf::Link link = urdf::xmlNodeToLink(node);
+    REQUIRE(link.inertial.has_value());
+    CHECK(link.inertial->mass == doctest::Approx(5.0f));
+    CHECK(link.inertial->origin.xyz.x == doctest::Approx(1.0f));
+    CHECK(link.inertial->origin.xyz.y == doctest::Approx(2.0f));
+    CHECK(link.inertial->origin.xyz.z == doctest::Approx(3.0f));
+    CHECK(link.inertial->origin.rpy.x == doctest::Approx(0.1f));
+    CHECK(link.inertial->inertia.ixx == doctest::Approx(0.1f));
+    CHECK(link.inertial->inertia.iyy == doctest::Approx(0.2f));
+    CHECK(link.inertial->inertia.izz == doctest::Approx(0.3f));
+    CHECK(link.inertial->inertia.ixy == doctest::Approx(0.01f));
+    CHECK(link.inertial->inertia.ixz == doctest::Approx(0.02f));
+    CHECK(link.inertial->inertia.iyz == doctest::Approx(0.03f));
+}
+
+TEST_CASE("Inline material reference-only not promoted") {
+    const char* xml = R"(
+        <robot name="test">
+            <link name="base_link">
+                <visual>
+                    <geometry><box size="1 1 1"/></geometry>
+                    <material name="existing_mat"/>
+                </visual>
+            </link>
+        </robot>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+
+    std::map<std::string, urdf::Material> materials;
+    for (const pugi::xml_node& link : doc.child("robot").children("link")) {
+        for (const pugi::xml_node& vis : link.children("visual")) {
+            const pugi::xml_node& mat_node = vis.child("material");
+            if (mat_node && (mat_node.child("color") || mat_node.child("texture"))) {
+                if (const auto m = urdf::xmlNodeToMaterial(mat_node)) {
+                    materials.insert({m->name, *m});
+                }
+            }
+        }
+    }
+
+    // Reference-only materials (no color/texture children) should not be promoted
+    CHECK(materials.empty());
 }

@@ -182,6 +182,26 @@ class CreateLimitCommand : public Command {
     std::optional<urdf::Limit>& target_;
 };
 
+class CreateMimicCommand : public Command {
+   public:
+    explicit CreateMimicCommand(std::optional<urdf::Mimic>& target);
+    void execute() override;
+    void undo() override;
+
+   private:
+    std::optional<urdf::Mimic>& target_;
+};
+
+class CreateCalibrationCommand : public Command {
+   public:
+    explicit CreateCalibrationCommand(std::optional<urdf::Calibration>& target);
+    void execute() override;
+    void undo() override;
+
+   private:
+    std::optional<urdf::Calibration>& target_;
+};
+
 class ChangeGeometryCommand : public Command {
    public:
     ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry, urdf::GeometryTypePtr new_geometry,
@@ -223,12 +243,13 @@ class CreateVisualCommand : public Command {
 
 class DeleteVisualCommand : public Command {
    public:
-    DeleteVisualCommand(urdf::LinkNodePtr& link, urdf::RobotPtr& robot);
+    DeleteVisualCommand(urdf::LinkNodePtr& link, int i, urdf::RobotPtr& robot);
     void execute() override;
     void undo() override;
 
    private:
     urdf::LinkNodePtr link_;
+    int i_;
     Shader shader_;
     urdf::Visual old_visual_;
     const urdf::RobotPtr robot_;
@@ -284,7 +305,6 @@ class UpdateGeometryCylinderCommand : public Command {
     float old_radius_;
     float old_length_;
     std::shared_ptr<urdf::Cylinder> cylinder_;
-    urdf::LinkNodePtr link_;
     Model& model_;
     const Shader& shader_;
 };

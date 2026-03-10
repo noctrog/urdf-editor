@@ -58,7 +58,6 @@ struct Box : public GeometryType {
 struct Cylinder : public GeometryType {
     Cylinder();
     Cylinder(const char* radius, const char* length);
-    Cylinder(float radius, float length);
     virtual ~Cylinder() = default;
 
     float radius;
@@ -79,11 +78,13 @@ struct Sphere : public GeometryType {
 };
 
 struct Mesh : public GeometryType {
-    Mesh(const char* filename, const std::string& resolved_path = "");
+    Mesh(const char* filename, const std::string& resolved_path = "",
+         const Vector3& scale = {1.0f, 1.0f, 1.0f});
     virtual ~Mesh() = default;
 
     std::string filename;
     std::string resolved_path;
+    Vector3 scale{1.0f, 1.0f, 1.0f};
 
     virtual Model generateGeometry() override;
 };
@@ -154,13 +155,24 @@ struct Limit {
     float velocity;
 };
 
+struct Mimic {
+    std::string joint;
+    float multiplier{1.0f};
+    float offset{0.0f};
+};
+
+struct Calibration {
+    float rising{0.0f};
+    float falling{0.0f};
+};
+
 struct Link {
     Link() = default;
     explicit Link(std::string name);
 
     std::string name;
     std::optional<Inertial> inertial;
-    std::optional<Visual> visual;
+    std::vector<Visual> visual;
     std::vector<Collision> collision;
 };
 
@@ -183,10 +195,10 @@ struct Joint {
     std::string child;
     std::optional<Origin> origin;
     std::optional<Axis> axis;
-    // TODO: calibration
+    std::optional<Calibration> calibration;
     std::optional<Dynamics> dynamics;
     std::optional<Limit> limit;  // required only for prismatic and revolute
-    // TODO: mimic
+    std::optional<Mimic> mimic;
 };
 
 struct TreeNode {
@@ -204,13 +216,15 @@ using JointNodePtr = std::shared_ptr<JointNode>;
 struct HitResult {
     LinkNodePtr link;
     enum Type { kVisual, kCollision } type;
-    int collision_index = 0;  // only meaningful when type == kCollision
+    int index = 0;  // visual index when kVisual, collision index when kCollision
 };
 
 struct LinkNode : TreeNode {
     LinkNode();
     LinkNode(Link link, JointNodePtr parent_joint);
 
+    void addVisual();
+    void deleteVisual(int i);
     void addCollision();
     void deleteCollision(int i);
 
@@ -218,7 +232,7 @@ struct LinkNode : TreeNode {
     JointNodePtr parent;
     std::vector<JointNodePtr> children;
 
-    Model visual_model;
+    std::vector<Model> visual_models;
     std::vector<Model> collision_models;
 
     // Homogeneous transform from link frame into world frame.

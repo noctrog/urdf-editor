@@ -234,6 +234,19 @@ void CreateLimitCommand::execute() { target_ = urdf::Limit(0.0F, 1.0F, 1.0F, 1.0
 
 void CreateLimitCommand::undo() { target_ = std::nullopt; }
 
+CreateMimicCommand::CreateMimicCommand(std::optional<urdf::Mimic>& target) : target_(target) {}
+
+void CreateMimicCommand::execute() { target_ = urdf::Mimic(); }
+
+void CreateMimicCommand::undo() { target_ = std::nullopt; }
+
+CreateCalibrationCommand::CreateCalibrationCommand(std::optional<urdf::Calibration>& target)
+    : target_(target) {}
+
+void CreateCalibrationCommand::execute() { target_ = urdf::Calibration(); }
+
+void CreateCalibrationCommand::undo() { target_ = std::nullopt; }
+
 ChangeGeometryCommand::ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry,
                                              urdf::GeometryTypePtr new_geometry,
                                              urdf::Geometry& target, Model& model,
@@ -249,8 +262,6 @@ void ChangeGeometryCommand::execute() {
 
     UnloadModel(model_);
     model_ = target_.type->generateGeometry();
-    // mesh_ = target_.type->generateGeometry();
-    // model_.meshes[0] = mesh_; // TODO: might need to update material
 
     robot_->forwardKinematics();
 }
@@ -260,7 +271,6 @@ void ChangeGeometryCommand::undo() {
 
     UnloadModel(model_);
     model_ = target_.type->generateGeometry();
-    // model_.meshes[0] = mesh_;
 
     robot_->forwardKinematics();
 }
@@ -284,35 +294,33 @@ CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link, const urdf::Ro
     : link_(link), robot_(robot), shader_(shader) {}
 
 void CreateVisualCommand::execute() {
-    link_->link.visual = urdf::Visual{std::nullopt, std::nullopt,
-                                      urdf::Geometry{std::make_shared<urdf::Box>()}, std::nullopt};
-    link_->visual_model = link_->link.visual->geometry.type->generateGeometry();
-    link_->visual_model.materials[0].shader = shader_;
+    link_->link.visual.push_back(
+        urdf::Visual{std::nullopt, std::nullopt,
+                     urdf::Geometry{std::make_shared<urdf::Box>()}, std::nullopt});
+    Model model = link_->link.visual.back().geometry.type->generateGeometry();
+    model.materials[0].shader = shader_;
+    link_->visual_models.push_back(model);
     robot_->forwardKinematics();
 }
 
 void CreateVisualCommand::undo() {
-    UnloadModel(link_->visual_model);
-    link_->link.visual = std::nullopt;
+    link_->deleteVisual(static_cast<int>(link_->link.visual.size()) - 1);
 }
 
-DeleteVisualCommand::DeleteVisualCommand(urdf::LinkNodePtr& link, urdf::RobotPtr& robot)
-    : link_(link), robot_(robot) {}
+DeleteVisualCommand::DeleteVisualCommand(urdf::LinkNodePtr& link, int i, urdf::RobotPtr& robot)
+    : link_(link), i_(i), robot_(robot) {}
 
 void DeleteVisualCommand::execute() {
-    old_visual_ = *link_->link.visual;
-    shader_ = link_->visual_model.materials[0].shader;
-
-    UnloadModel(link_->visual_model);
-    link_->link.visual = std::nullopt;
+    old_visual_ = link_->link.visual[i_];
+    shader_ = link_->visual_models[i_].materials[0].shader;
+    link_->deleteVisual(i_);
 }
 
 void DeleteVisualCommand::undo() {
-    link_->link.visual = old_visual_;
-    old_visual_ = urdf::Visual();
-    UnloadModel(link_->visual_model);
-    link_->visual_model = link_->link.visual->geometry.type->generateGeometry();
-    link_->visual_model.materials[0].shader = shader_;
+    link_->link.visual.insert(link_->link.visual.begin() + i_, old_visual_);
+    Model model = old_visual_.geometry.type->generateGeometry();
+    model.materials[0].shader = shader_;
+    link_->visual_models.insert(link_->visual_models.begin() + i_, model);
     robot_->forwardKinematics();
     robot_->updateMaterial(link_);
 }
@@ -361,9 +369,11 @@ void DeleteMaterialCommand::execute() {
     }
     // Update visuals so affected links fall back to default grey
     robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
-        if (link->link.visual && link->link.visual->material_name &&
-            *link->link.visual->material_name == name_) {
-            robot_->updateMaterial(link);
+        for (const auto& vis : link->link.visual) {
+            if (vis.material_name && *vis.material_name == name_) {
+                robot_->updateMaterial(link);
+                break;
+            }
         }
     });
 }
@@ -372,9 +382,11 @@ void DeleteMaterialCommand::undo() {
     robot_->getMutableMaterials()[saved_material_.name] = saved_material_;
     // Restore the material color on affected links
     robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
-        if (link->link.visual && link->link.visual->material_name &&
-            *link->link.visual->material_name == name_) {
-            robot_->updateMaterial(link);
+        for (const auto& vis : link->link.visual) {
+            if (vis.material_name && *vis.material_name == name_) {
+                robot_->updateMaterial(link);
+                break;
+            }
         }
     });
 }
@@ -394,11 +406,12 @@ void RenameMaterialCommand::renameMaterial(const std::string& from, const std::s
     materials[to] = mat;
 
     robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
-        if (link->link.visual && link->link.visual->material_name &&
-            *link->link.visual->material_name == from) {
-            link->link.visual->material_name = to;
-            robot_->updateMaterial(link);
+        for (auto& vis : link->link.visual) {
+            if (vis.material_name && *vis.material_name == from) {
+                vis.material_name = to;
+            }
         }
+        robot_->updateMaterial(link);
     });
 }
 
@@ -506,6 +519,7 @@ void UpdateGeometrySphereCommand::execute() {
 void UpdateGeometrySphereCommand::undo() {
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
+    sphere_->radius = old_radius_;
 
     UnloadModel(model_);
     model_ = sphere_->generateGeometry();

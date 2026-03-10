@@ -138,10 +138,16 @@ Model Sphere::generateGeometry() {
     return LoadModelFromMesh(mesh);
 }
 
-Mesh::Mesh(const char* filename, const std::string& resolved_path)
-    : filename(filename), resolved_path(resolved_path.empty() ? filename : resolved_path) {}
+Mesh::Mesh(const char* filename, const std::string& resolved_path, const Vector3& scale)
+    : filename(filename),
+      resolved_path(resolved_path.empty() ? filename : resolved_path),
+      scale(scale) {}
 
-Model Mesh::generateGeometry() { return LoadModelFromFile(resolved_path); }
+Model Mesh::generateGeometry() {
+    Model model = LoadModelFromFile(resolved_path);
+    model.transform = MatrixMultiply(MatrixScale(scale.x, scale.y, scale.z), model.transform);
+    return model;
+}
 
 Inertia::Inertia(float ixx, float iyy, float izz, float ixy, float ixz, float iyz)
     : ixx(ixx), iyy(iyy), izz(izz), ixy(ixy), ixz(ixz), iyz(iyz) {}
@@ -191,6 +197,18 @@ LinkNode::LinkNode() : link("New link"), w_T_l(MatrixIdentity()) {}
 LinkNode::LinkNode(Link link, JointNodePtr parent_joint)
     : link(std::move(link)), parent(std::move(parent_joint)), w_T_l(MatrixIdentity()) {}
 
+void LinkNode::addVisual() {
+    link.visual.emplace_back();
+    link.visual.back().geometry.type = std::make_shared<urdf::Box>();
+    visual_models.push_back(link.visual.back().geometry.type->generateGeometry());
+}
+
+void LinkNode::deleteVisual(int i) {
+    link.visual.erase(link.visual.begin() + i);
+    UnloadModel(visual_models[i]);
+    visual_models.erase(visual_models.begin() + i);
+}
+
 void LinkNode::addCollision() {
     link.collision.emplace_back();
     link.collision.back().geometry.type = std::make_shared<urdf::Box>();
@@ -224,12 +242,23 @@ RobotPtr buildRobot(const char* urdf_file) {
     tree_root->link = xmlNodeToLink(root_link, urdf_dir);
     tree_root->w_T_l = MatrixIdentity();
 
-    // Create all materials
-    // TODO(ramon): support loading materials that are defined within the link
+    // Create all materials (global definitions first)
     std::map<std::string, Material> materials;
     for (pugi::xml_node& mat : doc.child("robot").children("material")) {
         if (const auto m = xmlNodeToMaterial(mat)) {
             materials.insert({m->name, *m});
+        }
+    }
+
+    // Promote inline material definitions (materials defined inside <visual>) to the global map
+    for (const pugi::xml_node& link : doc.child("robot").children("link")) {
+        for (const pugi::xml_node& vis : link.children("visual")) {
+            const pugi::xml_node& mat_node = vis.child("material");
+            if (mat_node && (mat_node.child("color") || mat_node.child("texture"))) {
+                if (const auto m = xmlNodeToMaterial(mat_node)) {
+                    materials.insert({m->name, *m});
+                }
+            }
         }
     }
     // TODO(ramon): every link uses the same shader, the material properties change the shader
@@ -239,11 +268,7 @@ RobotPtr buildRobot(const char* urdf_file) {
     std::map<std::string, std::vector<Joint>> joint_p_hash;
     for (const pugi::xml_node& joint : doc.child("robot").children("joint")) {
         Joint j = xmlNodeToJoint(joint);
-        if (joint_p_hash.find(j.parent) == joint_p_hash.end()) {
-            joint_p_hash.insert({j.parent, std::vector<Joint>({j})});
-        } else {
-            joint_p_hash[j.parent].push_back(j);
-        }
+        joint_p_hash[j.parent].push_back(j);
     }
 
     // Link name to link
@@ -306,27 +331,28 @@ Link xmlNodeToLink(const pugi::xml_node& xml_node, const std::string& urdf_dir) 
 
     link.inertial = xmlNodeToInertial(xml_node.child("inertial"));
 
-    const pugi::xml_node& vis_node = xml_node.child("visual");
-    if (vis_node) {
-        link.visual = Visual{};
+    for (const auto& vis_node : xml_node.children("visual")) {
+        Visual vis{};
 
         // --- Name
         std::string visual_name = vis_node.attribute("name").as_string();
-        if (not visual_name.empty()) link.visual->name = visual_name;
+        if (not visual_name.empty()) vis.name = visual_name;
 
         // --- Origin
         const auto& ori_node = vis_node.child("origin");
-        link.visual->origin = xmlNodeToOrigin(ori_node);
+        vis.origin = xmlNodeToOrigin(ori_node);
 
         // --- Geometry
         const auto& geom_node = vis_node.child("geometry");
-        link.visual->geometry = xmlNodeToGeometry(geom_node, urdf_dir);
+        vis.geometry = xmlNodeToGeometry(geom_node, urdf_dir);
 
         // --- Material
         if (const auto& mat_node = vis_node.child("material")) {
-            link.visual->material_name = mat_node.attribute("name").as_string();
-            CHECK_F(not link.visual->material_name->empty(), "Materials need to have a name!");
+            vis.material_name = mat_node.attribute("name").as_string();
+            CHECK_F(not vis.material_name->empty(), "Materials need to have a name!");
         }
+
+        link.visual.push_back(vis);
     }
 
     for (const auto& col_node : xml_node.children("collision")) {
@@ -355,48 +381,56 @@ Joint xmlNodeToJoint(const pugi::xml_node& xml_node) {
                 xml_node.child("parent").attribute("link").as_string(),
                 xml_node.child("child").attribute("link").as_string(),
                 xml_node.attribute("type").as_string());
-    if (xml_node.child("origin")) {
-        joint.origin = Origin(xml_node.child("origin").attribute("xyz").as_string(),
-                              xml_node.child("origin").attribute("rpy").as_string());
+    if (auto origin_node = xml_node.child("origin")) {
+        joint.origin = Origin(origin_node.attribute("xyz").as_string(),
+                              origin_node.attribute("rpy").as_string());
     }
-    if (xml_node.child("axis")) {
-        joint.axis = Axis(xml_node.child("axis").attribute("xyz").as_string());
+    if (auto axis_node = xml_node.child("axis")) {
+        joint.axis = Axis(axis_node.attribute("xyz").as_string());
     }
-    if (xml_node.child("dynamics")) {
-        joint.dynamics = Dynamics(xml_node.child("dynamics").attribute("damping").as_float(),
-                                  xml_node.child("dynamics").attribute("friction").as_float());
+    if (auto dynamics_node = xml_node.child("dynamics")) {
+        joint.dynamics = Dynamics(dynamics_node.attribute("damping").as_float(),
+                                  dynamics_node.attribute("friction").as_float());
     }
-    if (xml_node.child("limit")) {
-        joint.limit = Limit(xml_node.child("limit").attribute("lower").as_float(),
-                            xml_node.child("limit").attribute("upper").as_float(),
-                            xml_node.child("limit").attribute("effort").as_float(),
-                            xml_node.child("limit").attribute("velocity").as_float());
+    if (auto limit_node = xml_node.child("limit")) {
+        joint.limit = Limit(limit_node.attribute("lower").as_float(),
+                            limit_node.attribute("upper").as_float(),
+                            limit_node.attribute("effort").as_float(),
+                            limit_node.attribute("velocity").as_float());
+    }
+    if (auto mimic_node = xml_node.child("mimic")) {
+        Mimic m;
+        m.joint = mimic_node.attribute("joint").as_string();
+        m.multiplier = mimic_node.attribute("multiplier").as_float(1.0f);
+        m.offset = mimic_node.attribute("offset").as_float(0.0f);
+        joint.mimic = m;
+    }
+    if (auto cal_node = xml_node.child("calibration")) {
+        Calibration c;
+        c.rising = cal_node.attribute("rising").as_float(0.0f);
+        c.falling = cal_node.attribute("falling").as_float(0.0f);
+        joint.calibration = c;
     }
     return joint;
 }
 
 std::optional<Origin> xmlNodeToOrigin(const pugi::xml_node& xml_node) {
-    if (xml_node) {
-        return Origin(xml_node.attribute("xyz").as_string(), xml_node.attribute("rpy").as_string());
-    } else {
-        return std::nullopt;
-    }
+    if (!xml_node) return std::nullopt;
+    return Origin(xml_node.attribute("xyz").as_string(), xml_node.attribute("rpy").as_string());
 }
 
 std::optional<Inertial> xmlNodeToInertial(const pugi::xml_node& xml_node) {
-    if (xml_node) {
-        return Inertial(xml_node.child("inertial").child("origin").attribute("xyz").as_string(),
-                        xml_node.child("inertial").child("origin").attribute("rpy").as_string(),
-                        xml_node.child("inertial").child("mass").attribute("value").as_float(),
-                        xml_node.child("inertial").child("inertia").attribute("ixx").as_float(),
-                        xml_node.child("inertial").child("inertia").attribute("iyy").as_float(),
-                        xml_node.child("inertial").child("inertia").attribute("izz").as_float(),
-                        xml_node.child("inertial").child("inertia").attribute("ixy").as_float(),
-                        xml_node.child("inertial").child("inertia").attribute("ixz").as_float(),
-                        xml_node.child("inertial").child("inertia").attribute("iyz").as_float());
-    } else {
-        return std::nullopt;
-    }
+    if (!xml_node) return std::nullopt;
+
+    return Inertial(xml_node.child("origin").attribute("xyz").as_string(),
+                    xml_node.child("origin").attribute("rpy").as_string(),
+                    xml_node.child("mass").attribute("value").as_float(),
+                    xml_node.child("inertia").attribute("ixx").as_float(),
+                    xml_node.child("inertia").attribute("iyy").as_float(),
+                    xml_node.child("inertia").attribute("izz").as_float(),
+                    xml_node.child("inertia").attribute("ixy").as_float(),
+                    xml_node.child("inertia").attribute("ixz").as_float(),
+                    xml_node.child("inertia").attribute("iyz").as_float());
 }
 
 Geometry xmlNodeToGeometry(const pugi::xml_node& geom_node, const std::string& urdf_dir) {
@@ -416,36 +450,38 @@ Geometry xmlNodeToGeometry(const pugi::xml_node& geom_node, const std::string& u
         std::string filename = geom_node.child("mesh").attribute("filename").as_string();
         std::string resolved = resolveMeshPath(filename, urdf_dir);
         LOG_F(1, "Mesh: %s -> %s", filename.c_str(), resolved.c_str());
-        geom.type = std::make_shared<Mesh>(filename.c_str(), resolved);
+        Vector3 scale{1.0f, 1.0f, 1.0f};
+        if (geom_node.child("mesh").attribute("scale")) {
+            storeVec3(geom_node.child("mesh").attribute("scale").as_string(), scale);
+        }
+        geom.type = std::make_shared<Mesh>(filename.c_str(), resolved, scale);
     }
 
     return geom;
 }
 
 std::optional<Material> xmlNodeToMaterial(const pugi::xml_node& mat_node) {
-    if (mat_node) {
-        Material mat;
+    if (!mat_node) return std::nullopt;
 
-        mat.name = mat_node.attribute("name").as_string();
-        CHECK_F(not mat.name.empty(), "Materials need to have a name!");
+    Material mat;
 
-        if (mat_node.child("color")) {
-            CHECK_F(static_cast<bool>(mat_node.child("color").attribute("rgba")),
-                    "The material color tag needs to have an rgba value");
-            mat.rgba = Vector4{};
-            storeVec4(mat_node.child("color").attribute("rgba").as_string(), mat.rgba.value());
-        }
+    mat.name = mat_node.attribute("name").as_string();
+    CHECK_F(not mat.name.empty(), "Materials need to have a name!");
 
-        if (mat_node.child("texture")) {
-            CHECK_F(static_cast<bool>(mat_node.child("texture").attribute("filename")),
-                    "The texture tag needs to have a filename attribute!");
-            mat.texture_file = mat_node.child("texture").attribute("filename").as_string();
-        }
-
-        return mat;
-    } else {
-        return std::nullopt;
+    if (auto color_node = mat_node.child("color")) {
+        CHECK_F(static_cast<bool>(color_node.attribute("rgba")),
+                "The material color tag needs to have an rgba value");
+        mat.rgba = Vector4{};
+        storeVec4(color_node.attribute("rgba").as_string(), mat.rgba.value());
     }
+
+    if (auto texture_node = mat_node.child("texture")) {
+        CHECK_F(static_cast<bool>(texture_node.attribute("filename")),
+                "The texture tag needs to have a filename attribute!");
+        mat.texture_file = texture_node.attribute("filename").as_string();
+    }
+
+    return mat;
 }
 
 void exportRobot(const Robot& robot, std::string out_filename) {
@@ -502,20 +538,20 @@ void linkToXmlNode(pugi::xml_node& xml_node, const Link& link) {
         inertialToXmlNode(inertial_node, *link.inertial);
     }
 
-    if (link.visual) {
+    for (const Visual& vis : link.visual) {
         pugi::xml_node visual_node = xml_node.append_child("visual");
-        if (link.visual->name) {
-            visual_node.append_attribute("name") = link.visual->name->c_str();
+        if (vis.name) {
+            visual_node.append_attribute("name") = vis.name->c_str();
         }
-        if (link.visual->origin) {
+        if (vis.origin) {
             pugi::xml_node origin_node = visual_node.append_child("origin");
-            originToXmlNode(origin_node, *link.visual->origin);
+            originToXmlNode(origin_node, *vis.origin);
         }
         pugi::xml_node geometry_node = visual_node.append_child("geometry");
-        geometryToXmlNode(geometry_node, link.visual->geometry);
-        if (link.visual->material_name) {
+        geometryToXmlNode(geometry_node, vis.geometry);
+        if (vis.material_name) {
             visual_node.append_child("material").append_attribute("name") =
-                link.visual->material_name->c_str();
+                vis.material_name->c_str();
         }
     }
 
@@ -594,6 +630,19 @@ void jointToXmlNode(pugi::xml_node& joint_node, const Joint& joint) {
         limit_node.append_attribute("effort") = joint.limit->effort;
         limit_node.append_attribute("velocity") = joint.limit->velocity;
     }
+
+    if (joint.mimic) {
+        pugi::xml_node mimic_node = joint_node.append_child("mimic");
+        mimic_node.append_attribute("joint") = joint.mimic->joint.c_str();
+        mimic_node.append_attribute("multiplier") = joint.mimic->multiplier;
+        mimic_node.append_attribute("offset") = joint.mimic->offset;
+    }
+
+    if (joint.calibration) {
+        pugi::xml_node cal_node = joint_node.append_child("calibration");
+        cal_node.append_attribute("rising") = joint.calibration->rising;
+        cal_node.append_attribute("falling") = joint.calibration->falling;
+    }
 }
 
 void inertialToXmlNode(pugi::xml_node& xml_node, const Inertial& inertial) {
@@ -626,23 +675,24 @@ void originToXmlNode(pugi::xml_node& xml_node, const Origin& origin) {
 void geometryToXmlNode(pugi::xml_node& xml_node, const Geometry& geometry) {
     xml_node.set_name("geometry");
 
-    if (std::dynamic_pointer_cast<Box>(geometry.type)) {
-        const Box& box = *std::dynamic_pointer_cast<Box>(geometry.type);
+    if (auto box = std::dynamic_pointer_cast<Box>(geometry.type)) {
         pugi::xml_node box_node = xml_node.append_child("box");
         box_node.append_attribute("size") =
-            fmt::format("{} {} {}", box.size.x, box.size.y, box.size.z).c_str();
-    } else if (std::dynamic_pointer_cast<Cylinder>(geometry.type)) {
-        const Cylinder& cylinder = *std::dynamic_pointer_cast<Cylinder>(geometry.type);
+            fmt::format("{} {} {}", box->size.x, box->size.y, box->size.z).c_str();
+    } else if (auto cylinder = std::dynamic_pointer_cast<Cylinder>(geometry.type)) {
         pugi::xml_node cylinder_node = xml_node.append_child("cylinder");
-        cylinder_node.append_attribute("radius") = fmt::format("{}", cylinder.radius).c_str();
-        cylinder_node.append_attribute("length") = fmt::format("{}", cylinder.length).c_str();
-    } else if (std::dynamic_pointer_cast<Sphere>(geometry.type)) {
-        const Sphere& sphere = *std::dynamic_pointer_cast<Sphere>(geometry.type);
+        cylinder_node.append_attribute("radius") = fmt::format("{}", cylinder->radius).c_str();
+        cylinder_node.append_attribute("length") = fmt::format("{}", cylinder->length).c_str();
+    } else if (auto sphere = std::dynamic_pointer_cast<Sphere>(geometry.type)) {
         pugi::xml_node sphere_node = xml_node.append_child("sphere");
-        sphere_node.append_attribute("radius") = fmt::format("{}", sphere.radius).c_str();
+        sphere_node.append_attribute("radius") = fmt::format("{}", sphere->radius).c_str();
     } else if (auto mesh = std::dynamic_pointer_cast<Mesh>(geometry.type)) {
         pugi::xml_node mesh_node = xml_node.append_child("mesh");
         mesh_node.append_attribute("filename") = mesh->filename.c_str();
+        if (mesh->scale.x != 1.0f || mesh->scale.y != 1.0f || mesh->scale.z != 1.0f) {
+            mesh_node.append_attribute("scale") =
+                fmt::format("{} {} {}", mesh->scale.x, mesh->scale.y, mesh->scale.z).c_str();
+        }
     } else {
         LOG_F(WARNING, "Geometry type not implemented yet");
     }
@@ -669,7 +719,9 @@ Robot::Robot(LinkNodePtr root, const std::map<std::string, Material>& materials)
 
 Robot::~Robot() {
     auto func = [&](const LinkNodePtr& link) {
-        UnloadModel(link->visual_model);
+        for (const Model& mod : link->visual_models) {
+            UnloadModel(mod);
+        }
         for (const Model& mod : link->collision_models) {
             UnloadModel(mod);
         }
@@ -696,10 +748,13 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
             const Matrix w_t_c = MatMul(w_t_p, MatMul(p_t_j, j_t_c));
             joint_node->child->w_T_l = w_t_c;
 
-            // Update visual transform
-            const Matrix c_t_v = originToMatrix(joint_node->child->link.visual->origin);
-            const Matrix w_t_v = MatMul(w_t_c, c_t_v);
-            joint_node->child->visual_model.transform = w_t_v;
+            // Update visual transforms
+            for (size_t i = 0; i < joint_node->child->visual_models.size(); ++i) {
+                auto& vis_origin = joint_node->child->link.visual[i].origin;
+                const Matrix c_t_v = originToMatrix(vis_origin);
+                const Matrix w_t_v = MatMul(w_t_c, c_t_v);
+                joint_node->child->visual_models[i].transform = w_t_v;
+            }
 
             // Update collision transform
             for (size_t i = 0; i < joint_node->child->collision_models.size(); ++i) {
@@ -716,27 +771,21 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
 }
 
 Matrix Robot::originToMatrix(std::optional<Origin>& origin) {
-    Matrix t = MatrixIdentity();
-
-    if (origin) {
-        t = origin->toMatrix();
-    }
-
-    return t;
+    return origin ? origin->toMatrix() : MatrixIdentity();
 }
 
 void Robot::buildGeometry() {
     auto func = [&](const LinkNodePtr& link) {
-        // Visual model
-        if (link->link.visual) {
-            link->visual_model = link->link.visual->geometry.type->generateGeometry();
-            link->visual_model.materials[0].shader = visual_shader_;
-            updateMaterial(link);
+        // Visual models
+        for (size_t i = 0; i < link->link.visual.size(); ++i) {
+            Model model = link->link.visual[i].geometry.type->generateGeometry();
+            model.materials[0].shader = visual_shader_;
+            link->visual_models.push_back(model);
         }
+        updateMaterial(link);
 
-        // Collision model
+        // Collision models
         for (const Collision& col : link->link.collision) {
-            // link->collision_mesh.push_back(col.geometry.type->generateGeometry());
             link->collision_models.push_back(col.geometry.type->generateGeometry());
         }
     };
@@ -756,32 +805,31 @@ void Robot::updateMaterial(const LinkNodePtr& link) {
             static_cast<char>(color.w * kColorByteMax);
     };
 
-    if (!link->link.visual) return;
+    const Vector4 default_grey{0.5f, 0.5f, 0.5f, 1.0f};
+    for (size_t i = 0; i < link->link.visual.size(); ++i) {
+        if (i >= link->visual_models.size()) break;
 
-    if (link->link.visual->material_name) {
-        auto it = materials_.find(*link->link.visual->material_name);
-        if (it != materials_.end() && it->second.rgba) {
-            set_material_diffuse_color(link->visual_model, *it->second.rgba);
-        } else {
-            set_material_diffuse_color(link->visual_model, Vector4{0.5f, 0.5f, 0.5f, 1.0f});
-            LOG_F(INFO,
-                  "Link: %s. RGBA not found, using default color. Texture is not implemented yet.",
-                  link->link.name.c_str());
+        Vector4 color = default_grey;
+        const auto& mat_name = link->link.visual[i].material_name;
+        if (mat_name) {
+            auto it = materials_.find(*mat_name);
+            if (it != materials_.end() && it->second.rgba) {
+                color = *it->second.rgba;
+            }
         }
-    } else {
-        set_material_diffuse_color(link->visual_model, Vector4{0.5f, 0.5f, 0.5f, 1.0f});
-        LOG_F(INFO, "Link: %s. No material name specified. Using default color",
-              link->link.name.c_str());
+        set_material_diffuse_color(link->visual_models[i], color);
     }
 }
 
 void Robot::draw(const LinkNodePtr& highlighted, const LinkNodePtr& selected) const {
     auto draw_link = [&](const LinkNodePtr& link) {
-        if (link->link.visual and link->visual_model.meshCount > 0) {
-            if (highlighted.get() == link.get()) {
-                DrawModel(link->visual_model, Vector3Zero(), 1.0, RED);
-            } else {
-                DrawModel(link->visual_model, Vector3Zero(), 1.0, WHITE);
+        for (const Model& vm : link->visual_models) {
+            if (vm.meshCount > 0) {
+                if (highlighted.get() == link.get()) {
+                    DrawModel(vm, Vector3Zero(), 1.0, RED);
+                } else {
+                    DrawModel(vm, Vector3Zero(), 1.0, WHITE);
+                }
             }
         }
         for (const Model& model : link->collision_models) {
@@ -800,14 +848,12 @@ void Robot::setShader(const Shader& sh) {
     visual_shader_ = sh;
 
     auto func = [&](const LinkNodePtr& link) {
-        if (link->visual_model.materialCount > 0) {
-            if (::Material* mat = link->visual_model.materials) {
-                mat[0].shader = visual_shader_;
+        for (Model& vm : link->visual_models) {
+            if (vm.materialCount > 0) {
+                if (::Material* mat = vm.materials) {
+                    mat[0].shader = visual_shader_;
+                }
             }
-        } else {
-            LOG_F(WARNING, "Link %s visual model does not have materials", link->link.name.c_str());
-            LOG_F(WARNING, "Link %s has %d meshes", link->link.name.c_str(),
-                  link->visual_model.meshCount);
         }
     };
 
@@ -827,13 +873,13 @@ std::optional<HitResult> Robot::getLink(const Ray& ray) {
 
     forEveryLink([&](const LinkNodePtr& link) {
         // Test visual meshes
-        if (link->link.visual && link->visual_model.meshCount > 0) {
-            for (int m = 0; m < link->visual_model.meshCount; m++) {
-                RayCollision rc = GetRayCollisionMesh(ray, link->visual_model.meshes[m],
-                                                      link->visual_model.transform);
+        for (int vi = 0; vi < static_cast<int>(link->visual_models.size()); vi++) {
+            const Model& vm = link->visual_models[vi];
+            for (int m = 0; m < vm.meshCount; m++) {
+                RayCollision rc = GetRayCollisionMesh(ray, vm.meshes[m], vm.transform);
                 if (rc.hit && rc.distance < closest) {
                     closest = rc.distance;
-                    result = {link, HitResult::kVisual, 0};
+                    result = {link, HitResult::kVisual, vi};
                 }
             }
         }

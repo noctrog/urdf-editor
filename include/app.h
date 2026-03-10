@@ -56,9 +56,10 @@ class App {
     void menuAxis(std::optional<urdf::Axis>& axis);
     void menuDynamics(std::optional<urdf::Dynamics>& dynamics);
     void menuLimit(std::optional<urdf::Limit>& limit);
+    void menuMimic(std::optional<urdf::Mimic>& mimic);
+    void menuCalibration(std::optional<urdf::Calibration>& calibration);
 
     void menuPropertiesInertial(urdf::LinkNodePtr link_node);
-    void menuPropertiesVisual(urdf::LinkNodePtr link_node);
     void menuPropertiesCollisions(urdf::LinkNodePtr link_node, int i);
 
     CommandBuffer command_buffer_;
@@ -87,7 +88,7 @@ class App {
     urdf::TreeNodePtr selected_node_;
     urdf::OriginRawPtr selected_link_origin_;
 
-    int pending_tab_ = -1;  // -1=none, 0=visual, 1+=collision index + 1
+    int pending_tab_ = -1;  // -1=none, 0..N-1=visual index, N..=collision index + N
 
     RGizmo gizmo_;
 

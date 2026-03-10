@@ -240,13 +240,14 @@ void App::update() {
                 pending_tab_ = -1;
             } else if (hit->type == urdf::HitResult::kVisual) {
                 selected_node_ = hit->link;
-                pending_tab_ = 0;
-                auto& origin = hit->link->link.visual->origin;
+                pending_tab_ = hit->index;
+                auto& origin = hit->link->link.visual[hit->index].origin;
                 selected_link_origin_ = origin ? &*origin : nullptr;
             } else {
                 selected_node_ = hit->link;
-                pending_tab_ = hit->collision_index + 1;
-                auto& origin = hit->link->link.collision[hit->collision_index].origin;
+                int num_visuals = static_cast<int>(hit->link->link.visual.size());
+                pending_tab_ = num_visuals + hit->index;
+                auto& origin = hit->link->link.collision[hit->index].origin;
                 selected_link_origin_ = origin ? &*origin : nullptr;
             }
         }
@@ -295,11 +296,11 @@ void App::drawMenu() {
 
 void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
                                Rectangle viewport) {
-    if (link->visual_model.meshCount <= 0) return;
+    if (link->visual_models.empty()) return;
 
     rlDrawRenderBatchActive();
 
-    // Pass 1: Fill stencil buffer with 1 where the selected mesh is drawn
+    // Pass 1: Fill stencil buffer with 1 where the selected meshes are drawn
     glEnable(GL_STENCIL_TEST);
     glDisable(GL_DEPTH_TEST);
     glStencilFunc(GL_ALWAYS, 1, 0xFF);
@@ -309,7 +310,9 @@ void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
     glDepthMask(GL_FALSE);
 
     rlDrawRenderBatchActive();
-    DrawModel(link->visual_model, Vector3Zero(), 1.0F, WHITE);
+    for (const Model& vm : link->visual_models) {
+        DrawModel(vm, Vector3Zero(), 1.0F, WHITE);
+    }
     rlDrawRenderBatchActive();
 
     // Pass 2: Draw expanded mesh only where stencil != 1 (the border region)
@@ -317,24 +320,28 @@ void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
     glStencilMask(0x00);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    // Set outline shader uniforms (locations cached at load time)
-    float vp_size[2] = {viewport.width, viewport.height};
-    Vector3 center = getModelBoundingBoxCenter(link->visual_model);
+    for (Model& vm : link->visual_models) {
+        if (vm.meshCount <= 0) continue;
 
-    SetShaderValue(outline_shader_, outline_loc_width_, &kOutlineWidthPx, SHADER_UNIFORM_FLOAT);
-    SetShaderValue(outline_shader_, outline_loc_viewport_, vp_size, SHADER_UNIFORM_VEC2);
-    SetShaderValue(outline_shader_, outline_loc_color_, kOutlineColor, SHADER_UNIFORM_VEC4);
-    SetShaderValue(outline_shader_, outline_loc_center_, &center, SHADER_UNIFORM_VEC3);
+        // Set outline shader uniforms (locations cached at load time)
+        float vp_size[2] = {viewport.width, viewport.height};
+        Vector3 center = getModelBoundingBoxCenter(vm);
 
-    // Temporarily swap to outline shader for all materials
-    for (int i = 0; i < link->visual_model.materialCount; i++) {
-        link->visual_model.materials[i].shader = outline_shader_;
-    }
+        SetShaderValue(outline_shader_, outline_loc_width_, &kOutlineWidthPx, SHADER_UNIFORM_FLOAT);
+        SetShaderValue(outline_shader_, outline_loc_viewport_, vp_size, SHADER_UNIFORM_VEC2);
+        SetShaderValue(outline_shader_, outline_loc_color_, kOutlineColor, SHADER_UNIFORM_VEC4);
+        SetShaderValue(outline_shader_, outline_loc_center_, &center, SHADER_UNIFORM_VEC3);
 
-    DrawModel(link->visual_model, Vector3Zero(), 1.0F, WHITE);
+        // Temporarily swap to outline shader for all materials
+        for (int i = 0; i < vm.materialCount; i++) {
+            vm.materials[i].shader = outline_shader_;
+        }
 
-    for (int i = 0; i < link->visual_model.materialCount; i++) {
-        link->visual_model.materials[i].shader = shader_;
+        DrawModel(vm, Vector3Zero(), 1.0F, WHITE);
+
+        for (int i = 0; i < vm.materialCount; i++) {
+            vm.materials[i].shader = shader_;
+        }
     }
 
     rlDrawRenderBatchActive();
@@ -946,28 +953,6 @@ void App::menuPropertiesInertial(urdf::LinkNodePtr link_node) {
     }
 }
 
-void App::menuPropertiesVisual(urdf::LinkNodePtr link_node) {
-    auto &visual = link_node->link.visual;
-    if (visual.has_value()) {
-        if (visual->origin.has_value()) {
-            selected_link_origin_ = &*visual->origin;
-        }
-        menuName(visual->name, "visual");
-        menuOrigin(visual->origin);
-        menuGeometry(visual->geometry, link_node->visual_model);
-        menuMaterial(visual->material_name, link_node);
-        ImGui::Separator();
-        if (ImGui::Button("Delete visual component")) {
-            command_buffer_.add(std::make_shared<DeleteVisualCommand>(link_node, robot_));
-        }
-    } else {
-        selected_link_origin_ = nullptr;
-        if (ImGui::Button("Create visual component")) {
-            command_buffer_.add(std::make_shared<CreateVisualCommand>(link_node, robot_, shader_));
-        }
-    }
-}
-
 void App::menuPropertiesCollisions(urdf::LinkNodePtr link_node, int i) {
     urdf::Collision &col = link_node->link.collision[i];
 
@@ -990,25 +975,52 @@ void App::drawNodeProperties() {
                 ImGui::EndTabItem();
             }
 
-            ImGuiTabItemFlags visual_flags = (pending_tab_ == 0)
-                                                 ? ImGuiTabItemFlags_SetSelected : 0;
-            if (ImGui::BeginTabItem("Visual##PropMenuVisual", nullptr, visual_flags)) {
-                menuPropertiesVisual(link_node);
-                ImGui::EndTabItem();
+            // "+" button for adding visuals and collisions
+            if (ImGui::TabItemButton("+##AddVisCol", ImGuiTabItemFlags_Trailing)) {
+                ImGui::OpenPopup("AddVisColPopup");
+            }
+            if (ImGui::BeginPopup("AddVisColPopup")) {
+                if (ImGui::MenuItem("Add Visual")) {
+                    command_buffer_.add(
+                        std::make_shared<CreateVisualCommand>(link_node, robot_, shader_));
+                }
+                if (ImGui::MenuItem("Add Collision")) {
+                    command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
+                }
+                ImGui::EndPopup();
             }
 
-            if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing)) {
-                command_buffer_.add(std::make_shared<AddCollisionCommand>(link_node));
+            int num_visuals = static_cast<int>(link_node->link.visual.size());
+            for (int i = 0; i < num_visuals; ++i) {
+                bool open = true;
+                char name_buffer[256];
+                snprintf(name_buffer, 256, "Vis %d##VisTabItem%d", i, i);
+                ImGuiTabItemFlags vis_flags = (pending_tab_ == i)
+                                                   ? ImGuiTabItemFlags_SetSelected : 0;
+                if (ImGui::BeginTabItem(name_buffer, &open, vis_flags)) {
+                    urdf::Visual &vis = link_node->link.visual[i];
+                    if (vis.origin.has_value()) {
+                        selected_link_origin_ = &*vis.origin;
+                    }
+                    menuName(vis.name, "visual");
+                    menuOrigin(vis.origin);
+                    menuGeometry(vis.geometry, link_node->visual_models[i]);
+                    menuMaterial(vis.material_name, link_node);
+                    ImGui::EndTabItem();
+                }
+
+                if (not open) {
+                    command_buffer_.add(
+                        std::make_shared<DeleteVisualCommand>(link_node, i, robot_));
+                }
             }
 
             int num_collisions = static_cast<int>(link_node->link.collision.size());
             for (int i = 0; i < num_collisions; ++i) {
                 bool open = true;
-                // Use a stable index-based label so that editing the collision
-                // name (inside the tab) never changes the tab's identity.
                 char name_buffer[256];
                 snprintf(name_buffer, 256, "Col %d##ColTabItem%d", i, i);
-                ImGuiTabItemFlags col_flags = (pending_tab_ == i + 1)
+                ImGuiTabItemFlags col_flags = (pending_tab_ == num_visuals + i)
                                                    ? ImGuiTabItemFlags_SetSelected : 0;
                 if (ImGui::BeginTabItem(name_buffer, &open, col_flags)) {
                     menuPropertiesCollisions(link_node, i);
@@ -1053,6 +1065,8 @@ void App::drawNodeProperties() {
             menuAxis(joint_node->joint.axis);
             menuDynamics(joint_node->joint.dynamics);
             menuLimit(joint_node->joint.limit);
+            menuMimic(joint_node->joint.mimic);
+            menuCalibration(joint_node->joint.calibration);
         }
 
         ImGui::Separator();
@@ -1216,6 +1230,49 @@ void App::menuLimit(std::optional<urdf::Limit> &limit) {
     }
 }
 
+void App::menuMimic(std::optional<urdf::Mimic> &mimic) {
+    if (mimic) {
+        if (ImGui::TreeNode("Mimic")) {
+            inputTextUndoable("Joint##mimic", mimic->joint);
+            inputFloatUndoable("Multiplier", mimic->multiplier);
+            inputFloatUndoable("Offset", mimic->offset);
+            if (ImGui::Button("Delete mimic")) {
+                auto old_mimic = *mimic;
+                mimic = std::nullopt;
+                command_buffer_.add(
+                    std::make_shared<UpdatePropertyCommand<std::optional<urdf::Mimic>>>(
+                        mimic, old_mimic, std::nullopt));
+            }
+            ImGui::TreePop();
+        }
+    } else {
+        if (ImGui::Button("Create mimic")) {
+            command_buffer_.add(std::make_shared<CreateMimicCommand>(mimic));
+        }
+    }
+}
+
+void App::menuCalibration(std::optional<urdf::Calibration> &calibration) {
+    if (calibration) {
+        if (ImGui::TreeNode("Calibration")) {
+            inputFloatUndoable("Rising", calibration->rising);
+            inputFloatUndoable("Falling", calibration->falling);
+            if (ImGui::Button("Delete calibration")) {
+                auto old_cal = *calibration;
+                calibration = std::nullopt;
+                command_buffer_.add(
+                    std::make_shared<UpdatePropertyCommand<std::optional<urdf::Calibration>>>(
+                        calibration, old_cal, std::nullopt));
+            }
+            ImGui::TreePop();
+        }
+    } else {
+        if (ImGui::Button("Create calibration")) {
+            command_buffer_.add(std::make_shared<CreateCalibrationCommand>(calibration));
+        }
+    }
+}
+
 void App::menuGeometry(urdf::Geometry &geometry, Model &model) {
     if (ImGui::TreeNode("Geometry")) {
         if (urdf::GeometryTypePtr &type = geometry.type) {
@@ -1332,6 +1389,16 @@ void App::menuGeometry(urdf::Geometry &geometry, Model &model) {
                                              ImGuiInputTextFlags_EnterReturnsTrue)) {
                             // TODO(ramon): try to load mesh and update
                         }
+                        auto regen = [&model, &gmesh, this]() {
+                            MaterialMap mat_map = model.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+                            const Matrix t = model.transform;
+                            UnloadModel(model);
+                            model = gmesh->generateGeometry();
+                            model.materials[0].shader = shader_;
+                            model.transform = t;
+                            model.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+                        };
+                        inputFloat3Undoable("Scale", gmesh->scale, "%.3f", regen);
                     }
                     break;
                 default:
@@ -1400,9 +1467,11 @@ void App::inputColorEdit4Undoable(const char *label, Vector4 &color,
 
 void App::updateLinksUsingMaterial(const std::string &material_name) {
     robot_->forEveryLink([&](const urdf::LinkNodePtr &link) {
-        if (link->link.visual && link->link.visual->material_name &&
-            *link->link.visual->material_name == material_name) {
-            robot_->updateMaterial(link);
+        for (const auto& vis : link->link.visual) {
+            if (vis.material_name && *vis.material_name == material_name) {
+                robot_->updateMaterial(link);
+                break;
+            }
         }
     });
 }
@@ -1533,9 +1602,11 @@ void App::drawMaterialEditor() {
             // --- Used by
             std::vector<std::string> used_by;
             robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
-                if (link->link.visual && link->link.visual->material_name &&
-                    *link->link.visual->material_name == key) {
-                    used_by.push_back(link->link.name);
+                for (const auto& vis : link->link.visual) {
+                    if (vis.material_name && *vis.material_name == key) {
+                        used_by.push_back(link->link.name);
+                        break;
+                    }
                 }
             });
             if (!used_by.empty()) {
