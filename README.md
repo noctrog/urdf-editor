@@ -101,17 +101,6 @@ You can also change the mesh file at runtime by clicking the `...` button next
 to the filename in the Geometry section and selecting a new `.dae` or `.stl`
 file.
 
-# Roadmap
-
-- [x] Load and save URDF files
-- [x] Do/Undo system
-- [x] GUI (with ImGui)
-- [x] Drag and drop link (GUI URDF Tree)
-- [x] 3D Gizmo for visual editing
-- [x] Mesh geometry support
-- [x] Material editor
-- [x] Visualize joint axis
-
 # Contributing
 
 Contributions are always welcome! Feel free to open an issue or create a merge
