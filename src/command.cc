@@ -163,6 +163,38 @@ void CreateJointCommand::undo() {
     new_joint_.reset();
 }
 
+DeleteJointCommand::DeleteJointCommand(urdf::JointNodePtr joint, urdf::RobotPtr& robot,
+                                       urdf::TreeNodePtr& selected_node,
+                                       urdf::OriginRawPtr& selected_origin)
+    : joint_(std::move(joint)),
+      parent_(joint_->parent),
+      robot_(robot),
+      selected_node_(selected_node),
+      selected_origin_(selected_origin),
+      position_(0) {}
+
+void DeleteJointCommand::execute() {
+    auto& children = parent_->children;
+    auto it = std::find(children.begin(), children.end(), joint_);
+    position_ = static_cast<int>(std::distance(children.begin(), it));
+    children.erase(it);
+
+    selected_node_ = nullptr;
+    selected_origin_ = nullptr;
+
+    robot_->forwardKinematics();
+}
+
+void DeleteJointCommand::undo() {
+    auto& children = parent_->children;
+    children.insert(children.begin() + position_, joint_);
+
+    selected_node_ = joint_;
+    selected_origin_ = nullptr;
+
+    robot_->forwardKinematics();
+}
+
 CreateNameCommand::CreateNameCommand(std::optional<std::string>& target) : target_(target) {}
 
 void CreateNameCommand::execute() { target_ = std::string(); }

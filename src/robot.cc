@@ -540,6 +540,7 @@ void linkToXmlNode(pugi::xml_node& xml_node, const Link& link) {
 
 void jointToXmlNode(pugi::xml_node& joint_node, const Joint& joint) {
     joint_node.set_name("joint");
+    joint_node.append_attribute("name") = joint.name.c_str();
     switch (joint.type) {
         case Joint::kRevolute:
             joint_node.append_attribute("type") = "revolute";

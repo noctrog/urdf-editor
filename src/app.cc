@@ -680,6 +680,21 @@ void App::handleShortcuts() {
                 std::make_shared<CreateJointCommand>("New Joint", link_node, robot_));
         }
     }
+    if (ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) {
+        deleteSelectedJoint();
+    }
+}
+
+void App::deleteSelectedJoint() {
+    if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
+        command_buffer_.add(std::make_shared<DeleteJointCommand>(
+            joint_node, robot_, selected_node_, selected_link_origin_));
+    } else if (auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
+        if (link_node->parent) {
+            command_buffer_.add(std::make_shared<DeleteJointCommand>(
+                link_node->parent, robot_, selected_node_, selected_link_origin_));
+        }
+    }
 }
 
 void App::drawToolbar() {
@@ -718,6 +733,12 @@ void App::drawToolbar() {
                                 link_node != nullptr)) {
                 command_buffer_.add(
                     std::make_shared<CreateJointCommand>("New Joint", link_node, robot_));
+            }
+            // Enable delete when a joint is selected, or a non-root link
+            bool is_joint = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_) != nullptr;
+            bool can_delete = is_joint || (link_node && link_node->parent);
+            if (ImGui::MenuItem("Delete", "Del", false, can_delete)) {
+                deleteSelectedJoint();
             }
             ImGui::EndMenu();
         }
@@ -1002,6 +1023,14 @@ void App::drawNodeProperties() {
             ImGui::EndTabBar();
             pending_tab_ = -1;
         }
+
+        // Non-root links can be deleted (deletes parent joint + subtree)
+        if (link_node->parent) {
+            ImGui::Separator();
+            if (ImGui::Button("Delete link")) {
+                deleteSelectedJoint();
+            }
+        }
     } else if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
         inputTextUndoable("Name##joint", joint_node->joint.name);
 
@@ -1024,6 +1053,11 @@ void App::drawNodeProperties() {
             menuAxis(joint_node->joint.axis);
             menuDynamics(joint_node->joint.dynamics);
             menuLimit(joint_node->joint.limit);
+        }
+
+        ImGui::Separator();
+        if (ImGui::Button("Delete joint")) {
+            deleteSelectedJoint();
         }
     }
 }

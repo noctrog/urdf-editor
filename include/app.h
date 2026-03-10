@@ -45,6 +45,7 @@ class App {
     void handleShortcuts();
     void openFile();
     void saveFile();
+    void deleteSelectedJoint();
 
     void originGui(urdf::Origin& origin);
 

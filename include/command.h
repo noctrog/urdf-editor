@@ -113,6 +113,23 @@ class CreateJointCommand : public Command {
     urdf::RobotPtr& robot_;
 };
 
+// Deletes a joint and its entire child subtree from the tree.
+class DeleteJointCommand : public Command {
+   public:
+    DeleteJointCommand(urdf::JointNodePtr joint, urdf::RobotPtr& robot,
+                       urdf::TreeNodePtr& selected_node, urdf::OriginRawPtr& selected_origin);
+    void execute() override;
+    void undo() override;
+
+   private:
+    urdf::JointNodePtr joint_;
+    urdf::LinkNodePtr parent_;
+    urdf::RobotPtr& robot_;
+    urdf::TreeNodePtr& selected_node_;
+    urdf::OriginRawPtr& selected_origin_;
+    int position_;  // index in parent's children vector
+};
+
 class CreateNameCommand : public Command {
    public:
     explicit CreateNameCommand(std::optional<std::string>& target);

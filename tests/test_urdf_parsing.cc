@@ -107,10 +107,9 @@ TEST_CASE("Joint round-trip") {
     CHECK(joint.limit->effort == doctest::Approx(10.0f));
     CHECK(joint.limit->velocity == doctest::Approx(2.0f));
 
-    // Export
+    // Export (jointToXmlNode writes the name attribute itself)
     pugi::xml_document out_doc;
     pugi::xml_node out_node = out_doc.append_child("joint");
-    out_node.append_attribute("name") = joint.name.c_str();
     urdf::jointToXmlNode(out_node, joint);
 
     // Parse back
@@ -184,6 +183,33 @@ TEST_CASE("Link with visual and collision") {
     REQUIRE(link2.visual->material_name.has_value());
     CHECK(*link2.visual->material_name == "blue");
     CHECK(link2.collision.size() == 1);
+}
+
+TEST_CASE("jointToXmlNode writes name attribute") {
+    urdf::Joint joint("my_joint", "parent_link", "child_link", "fixed");
+
+    pugi::xml_document doc;
+    pugi::xml_node node = doc.append_child("joint");
+    urdf::jointToXmlNode(node, joint);
+
+    CHECK(std::string(node.attribute("name").as_string()) == "my_joint");
+    CHECK(std::string(node.attribute("type").as_string()) == "fixed");
+}
+
+TEST_CASE("jointToXmlNode name round-trips for all joint types") {
+    const char* types[] = {"revolute", "continuous", "prismatic", "fixed", "floating", "planar"};
+
+    for (const char* type : types) {
+        CAPTURE(type);
+        urdf::Joint joint("test_joint", "p", "c", type);
+
+        pugi::xml_document doc;
+        pugi::xml_node node = doc.append_child("joint");
+        urdf::jointToXmlNode(node, joint);
+
+        urdf::Joint parsed = urdf::xmlNodeToJoint(node);
+        CHECK(parsed.name == "test_joint");
+    }
 }
 
 TEST_CASE("findRoot identifies root link") {

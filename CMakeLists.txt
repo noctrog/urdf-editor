@@ -94,8 +94,10 @@ if(BUILD_TESTING)
         tests/test_main.cc
         tests/test_urdf_parsing.cc
         tests/test_origin_math.cc
+        tests/test_delete_joint.cc
         src/robot.cc
         src/import_mesh.cc
+        src/command.cc
     )
     target_include_directories(unit_tests PRIVATE include ${raylib_SOURCE_DIR}/src/external)
     target_link_libraries(unit_tests PRIVATE doctest::doctest raylib pugixml loguru fmt assimp)
