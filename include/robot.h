@@ -298,6 +298,9 @@ class Robot {
     const std::map<std::string, Material>& getMaterials() const;
     std::map<std::string, Material>& getMutableMaterials();
 
+    const std::vector<std::string>& getTransmissions() const;
+    void setTransmissions(std::vector<std::string> transmissions);
+
     void loadTextures();
     void reloadTexture(const std::string& material_name);
 
@@ -311,9 +314,14 @@ class Robot {
 
     std::map<std::string, Material> materials_;
     std::map<std::string, Texture2D> loaded_textures_;
+    std::vector<std::string> transmissions_;  // raw XML for round-trip preservation
 };
 
 using RobotPtr = std::shared_ptr<Robot>;
+
+// Compute inertia tensor for a uniform-density primitive around its center of mass.
+// Off-diagonal terms are zero for axis-aligned primitives. Mesh geometry is not supported.
+Inertia computeInertia(float mass, const GeometryTypePtr& geometry);
 
 GeometryTypePtr cloneGeometry(const GeometryTypePtr& src);
 JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_parent,

@@ -36,6 +36,7 @@ class App {
     void drawNodeProperties();
     void drawSideMenu();
     void drawMaterialEditor();
+    void drawValidationPanel();
 
     // Update visual materials on all links that reference the given material name.
     void updateLinksUsingMaterial(const std::string& material_name);
@@ -49,7 +50,7 @@ class App {
 
     void originGui(urdf::Origin& origin);
 
-    void menuName(std::optional<std::string>& name, const char* label = "");
+    void menuName(std::optional<std::string>& name);
     void menuOrigin(std::optional<urdf::Origin>& origin);
     void menuMaterial(std::optional<std::string>& material_name, const urdf::LinkNodePtr& link);
     void menuGeometry(urdf::Geometry& geometry, Model& model);
@@ -83,8 +84,11 @@ class App {
     bool bShowGrid_;
     bool bSupersampling_{true};
     bool bShowCollisions_{true};
+    bool bShowValidation_{false};
     bool bWindowShouldClose_;
     int menubar_height_{0};
+
+    char tree_filter_[128] = {};
 
     urdf::TreeNodePtr hovered_node_;
     urdf::TreeNodePtr selected_node_;

@@ -12,6 +12,7 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
+#include <sstream>
 #include <loguru.hpp>
 #include <map>
 #include <set>
@@ -225,6 +226,29 @@ void LinkNode::deleteCollision(int i) {
 JointNode::JointNode(Joint joint, LinkNodePtr parent, LinkNodePtr child)
     : joint(std::move(joint)), parent(std::move(parent)), child(std::move(child)) {}
 
+Inertia computeInertia(float mass, const GeometryTypePtr& geometry) {
+    if (auto box = std::dynamic_pointer_cast<Box>(geometry)) {
+        float x2 = box->size.x * box->size.x;
+        float y2 = box->size.y * box->size.y;
+        float z2 = box->size.z * box->size.z;
+        float k = mass / 12.0f;
+        return Inertia(k * (y2 + z2), k * (x2 + z2), k * (x2 + y2), 0, 0, 0);
+    }
+    if (auto cyl = std::dynamic_pointer_cast<Cylinder>(geometry)) {
+        float r2 = cyl->radius * cyl->radius;
+        float h2 = cyl->length * cyl->length;
+        float ixx = mass / 12.0f * (3.0f * r2 + h2);
+        float izz = mass * r2 / 2.0f;
+        return Inertia(ixx, ixx, izz, 0, 0, 0);
+    }
+    if (auto sph = std::dynamic_pointer_cast<Sphere>(geometry)) {
+        float r2 = sph->radius * sph->radius;
+        float val = 2.0f / 5.0f * mass * r2;
+        return Inertia(val, val, val, 0, 0, 0);
+    }
+    return Inertia(0, 0, 0, 0, 0, 0);
+}
+
 GeometryTypePtr cloneGeometry(const GeometryTypePtr& src) {
     if (auto box = std::dynamic_pointer_cast<Box>(src)) {
         return std::make_shared<Box>(box->size);
@@ -367,6 +391,14 @@ RobotPtr buildRobot(const char* urdf_file) {
     // TODO(ramon): every link uses the same shader, the material properties change the shader
     // color.
 
+    // Parse transmissions as opaque XML for round-trip preservation
+    std::vector<std::string> transmissions;
+    for (const pugi::xml_node& tx : doc.child("robot").children("transmission")) {
+        std::ostringstream oss;
+        tx.print(oss);
+        transmissions.push_back(oss.str());
+    }
+
     // Parent link to all child joints
     std::map<std::string, std::vector<Joint>> joint_p_hash;
     for (const pugi::xml_node& joint : doc.child("robot").children("joint")) {
@@ -405,6 +437,7 @@ RobotPtr buildRobot(const char* urdf_file) {
     }
 
     RobotPtr robot = std::make_shared<Robot>(tree_root, materials);
+    robot->setTransmissions(std::move(transmissions));
 
     LOG_F(INFO, "URDF Tree built successfully!");
 
@@ -633,6 +666,15 @@ void exportRobot(const Robot& robot, std::string out_filename) {
     for (const auto& mat : robot.getMaterials()) {
         pugi::xml_node mat_node = robot_root.append_child("material");
         materialToXmlNode(mat_node, mat.second);
+    }
+
+    // save transmissions (opaque XML round-trip)
+    for (const auto& tx_xml : robot.getTransmissions()) {
+        pugi::xml_document tx_doc;
+        tx_doc.load_string(tx_xml.c_str());
+        if (tx_doc.first_child()) {
+            robot_root.append_copy(tx_doc.first_child());
+        }
     }
 
     if (!out_doc.save_file(out_filename.c_str())) {
@@ -1160,6 +1202,12 @@ std::vector<ValidationMessage> Robot::validate() const {
 const std::map<std::string, Material>& Robot::getMaterials() const { return materials_; }
 
 std::map<std::string, Material>& Robot::getMutableMaterials() { return materials_; }
+
+const std::vector<std::string>& Robot::getTransmissions() const { return transmissions_; }
+
+void Robot::setTransmissions(std::vector<std::string> transmissions) {
+    transmissions_ = std::move(transmissions);
+}
 
 void Robot::forEveryLink(const std::function<void(const LinkNodePtr&)>& func) const {
     std::deque<LinkNodePtr> deq{root_};

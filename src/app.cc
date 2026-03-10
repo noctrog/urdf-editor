@@ -13,7 +13,9 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <functional>
+#include <set>
 #include <loguru.hpp>
 #include <nfd.hpp>
 #include <pugixml.hpp>
@@ -66,6 +68,15 @@ constexpr const char* kModName = "Cmd";
 #else
 constexpr const char* kModName = "Ctrl";
 #endif
+
+// Render a single validation message with appropriate color (red for errors, yellow for warnings).
+static void drawValidationMessage(const urdf::ValidationMessage& msg) {
+    if (msg.level == urdf::ValidationMessage::kError) {
+        ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "Error: %s", msg.message.c_str());
+    } else {
+        ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Warning: %s", msg.message.c_str());
+    }
+}
 
 void drawGridZUp(int slices, float spacing) {
     int half_slices = slices / 2;
@@ -290,6 +301,7 @@ void App::drawMenu() {
     drawToolbar();
     drawSideMenu();
     drawViewport();
+    drawValidationPanel();
 
     // Validation popup (triggered by saveFile)
     if (pending_save_) {
@@ -299,12 +311,8 @@ void App::drawMenu() {
     if (ImGui::BeginPopupModal("Validation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         bool has_errors = false;
         for (const auto& msg : validation_results_) {
-            if (msg.level == urdf::ValidationMessage::kError) {
-                has_errors = true;
-                ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "Error: %s", msg.message.c_str());
-            } else {
-                ImGui::TextColored(ImVec4(1, 0.8f, 0, 1), "Warning: %s", msg.message.c_str());
-            }
+            if (msg.level == urdf::ValidationMessage::kError) has_errors = true;
+            drawValidationMessage(msg);
         }
         ImGui::Separator();
         if (has_errors) {
@@ -797,6 +805,8 @@ void App::drawToolbar() {
                 robot_->forEveryJoint([](const urdf::JointNodePtr& j) { j->q = 0.0f; });
                 robot_->forwardKinematics();
             }
+            ImGui::Separator();
+            ImGui::MenuItem("Validation Panel", nullptr, &bShowValidation_);
             ImGui::EndMenu();
         }
 
@@ -811,6 +821,41 @@ void App::drawToolbar() {
 }
 
 void App::drawRobotTree() {
+    ImGui::InputTextWithHint("##tree_filter", "Search...", tree_filter_, sizeof(tree_filter_));
+
+    // Build visibility set when filtering
+    bool filtering = tree_filter_[0] != '\0';
+    std::set<void *> visible;
+    if (filtering && robot_) {
+        auto toLower = [](std::string s) -> std::string {
+            std::transform(s.begin(), s.end(), s.begin(),
+                           [](unsigned char c) { return std::tolower(c); });
+            return s;
+        };
+
+        std::string filter_lower = toLower(tree_filter_);
+
+        std::function<bool(const urdf::LinkNodePtr &)> mark =
+            [&](const urdf::LinkNodePtr &link) -> bool {
+            bool self_match = toLower(link->link.name).find(filter_lower) != std::string::npos;
+            bool child_match = false;
+            for (const auto &joint : link->children) {
+                bool joint_match = toLower(joint->joint.name).find(filter_lower) != std::string::npos;
+                bool subtree_match = mark(joint->child);
+                if (joint_match || subtree_match) {
+                    visible.insert(joint.get());
+                    child_match = true;
+                }
+            }
+            if (self_match || child_match) {
+                visible.insert(link.get());
+                return true;
+            }
+            return false;
+        };
+        mark(robot_->getRoot());
+    }
+
     ImGuiTableFlags table_flags = ImGuiTableFlags_BordersV | ImGuiTableFlags_BordersOuterH |
                                   ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
                                   ImGuiTableFlags_Hideable | ImGuiTableFlags_NoBordersInBody |
@@ -841,6 +886,7 @@ void App::drawRobotTree() {
 
             std::function<void(const urdf::LinkNodePtr &)> recursion = [&](auto link) {
                 if (not link) return;
+                if (filtering && visible.find(link.get()) == visible.end()) return;
 
                 // Unique ID for drag and drop
                 void *node_id = static_cast<void *>(link.get());
@@ -848,10 +894,14 @@ void App::drawRobotTree() {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
 
-                bool open = ImGui::TreeNodeEx(
-                    link->link.name.c_str(),
+                ImGuiTreeNodeFlags link_flags =
                     tree_flags | (link->children.empty() ? ImGuiTreeNodeFlags_Leaf : 0) |
-                        (link.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0));
+                    (link.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0);
+                if (filtering) {
+                    ImGui::SetNextItemOpen(true);
+                }
+
+                bool open = ImGui::TreeNodeEx(link->link.name.c_str(), link_flags);
 
                 if (ImGui::IsItemHovered()) {
                     hovered_node_ = link;
@@ -887,14 +937,20 @@ void App::drawRobotTree() {
 
                 if (open) {
                     for (urdf::JointNodePtr &joint : link->children) {
+                        if (filtering && visible.find(joint.get()) == visible.end()) continue;
+
                         ImGui::TableNextRow();
                         ImGui::TableNextColumn();
 
-                        bool open =
-                            ImGui::TreeNodeEx(joint->joint.name.c_str(),
-                                              tree_flags | (joint.get() == selected_node_.get()
-                                                                ? ImGuiTreeNodeFlags_Selected
-                                                                : 0));
+                        ImGuiTreeNodeFlags joint_flags =
+                            tree_flags | (joint.get() == selected_node_.get()
+                                              ? ImGuiTreeNodeFlags_Selected
+                                              : 0);
+                        if (filtering) {
+                            ImGui::SetNextItemOpen(true);
+                        }
+
+                        bool open = ImGui::TreeNodeEx(joint->joint.name.c_str(), joint_flags);
 
                         if (ImGui::IsItemHovered()) {
                             hovered_node_ = nullptr;
@@ -977,6 +1033,29 @@ void App::menuPropertiesInertial(urdf::LinkNodePtr link_node) {
 
         inputFloatUndoable("Mass", inertial->mass);
 
+        bool has_collision = !link_node->link.collision.empty();
+        bool is_primitive = has_collision &&
+            !std::dynamic_pointer_cast<urdf::Mesh>(
+                link_node->link.collision[0].geometry.type);
+        bool can_compute = is_primitive && inertial->mass > 0.0f;
+
+        if (!can_compute) ImGui::BeginDisabled();
+        if (ImGui::Button("Compute from collision")) {
+            urdf::Inertia new_inertia = urdf::computeInertia(
+                inertial->mass, link_node->link.collision[0].geometry.type);
+            command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Inertia>>(
+                inertial->inertia, inertial->inertia, new_inertia));
+        }
+        if (!can_compute) ImGui::EndDisabled();
+
+        if (!has_collision) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(no collision)");
+        } else if (!is_primitive) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("(mesh geometry)");
+        }
+
         originGui(inertial->origin);
 
         if (ImGui::TreeNode("Inertia")) {
@@ -1002,7 +1081,7 @@ void App::menuPropertiesCollisions(urdf::LinkNodePtr link_node, int i) {
 
     selected_link_origin_ = col.origin.has_value() ? &col.origin.value() : nullptr;
 
-    menuName(col.name, "collision");
+    menuName(col.name);
     menuOrigin(col.origin);
     menuGeometry(col.geometry, link_node->collision_models[i]);
 }
@@ -1065,7 +1144,7 @@ void App::drawNodeProperties() {
                     if (vis.origin.has_value()) {
                         selected_link_origin_ = &*vis.origin;
                     }
-                    menuName(vis.name, "visual");
+                    menuName(vis.name);
                     menuOrigin(vis.origin);
                     menuGeometry(vis.geometry, link_node->visual_models[i]);
                     menuMaterial(vis.material_name, link_node);
@@ -1184,7 +1263,7 @@ void App::originGui(urdf::Origin &origin) {
     }
 }
 
-void App::menuName(std::optional<std::string> &name, const char *label) {
+void App::menuName(std::optional<std::string> &name) {
     if (name) {
         inputTextUndoable("Name", *name);
     } else {
@@ -1490,9 +1569,19 @@ void App::menuGeometry(urdf::Geometry &geometry, Model &model) {
                                 LOG_F(WARNING, "Warn: %s", NFD::GetError());
                             }
                         }
-                        if (ImGui::InputText("Filename", &gmesh->filename,
-                                             ImGuiInputTextFlags_EnterReturnsTrue)) {
-                            // TODO(ramon): try to load mesh and update
+                        {
+                            std::string pre = gmesh->filename;
+                            ImGui::InputText("Filename", &gmesh->filename,
+                                             ImGuiInputTextFlags_EnterReturnsTrue);
+                            if (ImGui::IsItemActivated()) snapshot_string_ = pre;
+                            if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_string_) {
+                                std::string new_name = gmesh->filename;
+                                gmesh->filename = *snapshot_string_;
+                                gmesh->resolved_path = *snapshot_string_;
+                                command_buffer_.add(std::make_shared<UpdateGeometryMeshCommand>(
+                                    gmesh, new_name, model, shader_));
+                                snapshot_string_.reset();
+                            }
                         }
                         auto regen = [&model, &gmesh, this]() {
                             MaterialMap mat_map = model.materials[0].maps[MATERIAL_MAP_DIFFUSE];
@@ -1597,6 +1686,24 @@ void App::updateLinksUsingMaterial(const std::string &material_name) {
 
 std::function<void()> App::materialUpdateAction(const std::string &material_name) {
     return [this, material_name]() { updateLinksUsingMaterial(material_name); };
+}
+
+void App::drawValidationPanel() {
+    if (!bShowValidation_ || !robot_) return;
+
+    validation_results_ = robot_->validate();
+
+    ImGui::SetNextWindowSize(ImVec2(400, 200), ImGuiCond_FirstUseEver);
+    if (ImGui::Begin("Validation", &bShowValidation_)) {
+        if (validation_results_.empty()) {
+            ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "No issues found.");
+        } else {
+            for (const auto& msg : validation_results_) {
+                drawValidationMessage(msg);
+            }
+        }
+    }
+    ImGui::End();
 }
 
 void App::drawMaterialEditor() {
