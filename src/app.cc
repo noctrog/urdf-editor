@@ -60,6 +60,7 @@ constexpr float kAxisLength = 0.3F;
 constexpr float kAxisTipLength = 0.04F;
 constexpr float kAxisTipRadius = 0.015F;
 constexpr float kAxisSphereRadius = 0.015F;
+constexpr float kPrismaticDefaultRange = 1.0F;
 const Vector3 kUrdfDefaultAxis = {1.0F, 0.0F, 0.0F};
 
 // Platform-aware modifier label for menu shortcuts
@@ -434,8 +435,8 @@ void App::drawJointAxis(const urdf::JointNodePtr& joint) {
         }
         case urdf::Joint::kPrismatic: {
             // Line segment along axis between lower/upper limits, with spheres at endpoints
-            float lower = 0.0F;
-            float upper = kAxisLength;
+            float lower = -kPrismaticDefaultRange;
+            float upper = kPrismaticDefaultRange;
             if (joint->joint.limit && joint->joint.limit->upper > joint->joint.limit->lower) {
                 lower = joint->joint.limit->lower;
                 upper = joint->joint.limit->upper;
@@ -1206,8 +1207,14 @@ void App::drawNodeProperties() {
 
         if (joint_node->joint.isArticulated()) {
             auto fk = [this]() { robot_->forwardKinematics(); };
-            float min_val = -PI;
-            float max_val = PI;
+            float min_val, max_val;
+            if (joint_node->joint.type == urdf::Joint::kPrismatic) {
+                min_val = -kPrismaticDefaultRange;
+                max_val = kPrismaticDefaultRange;
+            } else {
+                min_val = -PI;
+                max_val = PI;
+            }
             if (joint_node->joint.limit &&
                 joint_node->joint.type != urdf::Joint::kContinuous) {
                 min_val = joint_node->joint.limit->lower;
