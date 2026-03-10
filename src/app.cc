@@ -1638,6 +1638,11 @@ void App::drawMaterialEditor() {
                 return std::nullopt;
             };
 
+            auto tex_action = [this, key]() {
+                robot_->reloadTexture(key);
+                updateLinksUsingMaterial(key);
+            };
+
             if (mat.texture_file) {
                 ImGui::Text("Texture: %s", mat.texture_file->c_str());
                 ImGui::SameLine();
@@ -1645,26 +1650,29 @@ void App::drawMaterialEditor() {
                     if (auto path = openTextureDialog()) {
                         auto old_tex = mat.texture_file;
                         mat.texture_file = *path;
+                        tex_action();
                         command_buffer_.add(
                             std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
-                                mat.texture_file, old_tex, mat.texture_file));
+                                mat.texture_file, old_tex, mat.texture_file, tex_action));
                     }
                 }
                 ImGui::SameLine();
                 if (ImGui::SmallButton("x##tex")) {
                     auto old_tex = mat.texture_file;
                     mat.texture_file = std::nullopt;
+                    tex_action();
                     command_buffer_.add(
                         std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
-                            mat.texture_file, old_tex, std::nullopt));
+                            mat.texture_file, old_tex, std::nullopt, tex_action));
                 }
             } else {
                 if (ImGui::Button("Add Texture")) {
                     if (auto path = openTextureDialog()) {
                         mat.texture_file = *path;
+                        tex_action();
                         command_buffer_.add(
                             std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
-                                mat.texture_file, std::nullopt, mat.texture_file));
+                                mat.texture_file, std::nullopt, mat.texture_file, tex_action));
                     }
                 }
             }

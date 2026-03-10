@@ -3,6 +3,7 @@
 #include <import_mesh.h>
 #include <raylib.h>
 #include <raymath.h>
+#include <rlgl.h>
 #include <robot.h>
 
 #include <cfloat>
@@ -21,7 +22,6 @@ using std::string;
 
 constexpr float kDefaultGeometrySize = 1.0F;
 constexpr int kMeshSubdivisions = 32;
-constexpr float kColorByteMax = 255.0F;
 
 static inline Matrix MatMul(const Matrix& left, const Matrix& right) {
     return MatrixMultiply(right, left);
@@ -45,7 +45,7 @@ static void storeVec4(const char* s, Vector4& vec) {
     CHECK_F(iss && (iss >> std::ws).eof(), "store_vec4: invalid string");
 }
 
-static std::string resolveMeshPath(const std::string& mesh_filename, const std::string& urdf_dir) {
+std::string resolveFilePath(const std::string& mesh_filename, const std::string& urdf_dir) {
     namespace fs = std::filesystem;
 
     const std::string package_prefix = "package://";
@@ -356,6 +356,13 @@ RobotPtr buildRobot(const char* urdf_file) {
             }
         }
     }
+    // Resolve texture paths relative to the URDF directory
+    for (auto& [name, mat] : materials) {
+        if (mat.texture_file) {
+            mat.texture_file = resolveFilePath(*mat.texture_file, urdf_dir);
+        }
+    }
+
     // TODO(ramon): every link uses the same shader, the material properties change the shader
     // color.
 
@@ -543,7 +550,7 @@ Geometry xmlNodeToGeometry(const pugi::xml_node& geom_node, const std::string& u
             std::make_shared<Sphere>(geom_node.child("sphere").attribute("radius").as_string());
     } else if (geom_node.child("mesh")) {
         std::string filename = geom_node.child("mesh").attribute("filename").as_string();
-        std::string resolved = resolveMeshPath(filename, urdf_dir);
+        std::string resolved = resolveFilePath(filename, urdf_dir);
         LOG_F(1, "Mesh: %s -> %s", filename.c_str(), resolved.c_str());
         Vector3 scale{1.0f, 1.0f, 1.0f};
         if (geom_node.child("mesh").attribute("scale")) {
@@ -823,6 +830,10 @@ Robot::~Robot() {
     };
 
     forEveryLink(func);
+
+    for (auto& [name, tex] : loaded_textures_) {
+        UnloadTexture(tex);
+    }
 }
 
 void Robot::forwardKinematics() { forwardKinematics(root_); }
@@ -870,6 +881,8 @@ Matrix Robot::originToMatrix(std::optional<Origin>& origin) {
 }
 
 void Robot::buildGeometry() {
+    loadTextures();
+
     auto func = [&](const LinkNodePtr& link) {
         // Visual models
         for (size_t i = 0; i < link->link.visual.size(); ++i) {
@@ -888,31 +901,64 @@ void Robot::buildGeometry() {
     forEveryLink(func);
 }
 
-void Robot::updateMaterial(const LinkNodePtr& link) {
-    auto set_material_diffuse_color = [](const Model& model, const Vector4& color) {
-        model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.r =
-            static_cast<char>(color.x * kColorByteMax);
-        model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.g =
-            static_cast<char>(color.y * kColorByteMax);
-        model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.b =
-            static_cast<char>(color.z * kColorByteMax);
-        model.materials[0].maps[MATERIAL_MAP_DIFFUSE].color.a =
-            static_cast<char>(color.w * kColorByteMax);
-    };
+void Robot::loadTextures() {
+    for (const auto& [name, mat] : materials_) {
+        loadTextureForMaterial(name, mat);
+    }
+}
 
+void Robot::reloadTexture(const std::string& material_name) {
+    auto it = loaded_textures_.find(material_name);
+    if (it != loaded_textures_.end()) {
+        UnloadTexture(it->second);
+        loaded_textures_.erase(it);
+    }
+
+    auto mat_it = materials_.find(material_name);
+    if (mat_it != materials_.end()) {
+        loadTextureForMaterial(material_name, mat_it->second);
+    }
+}
+
+void Robot::loadTextureForMaterial(const std::string& name, const Material& mat) {
+    if (!mat.texture_file || mat.texture_file->empty()) return;
+
+    if (!std::filesystem::exists(*mat.texture_file)) {
+        LOG_F(WARNING, "Texture file not found for material '%s': %s", name.c_str(),
+              mat.texture_file->c_str());
+        return;
+    }
+
+    loaded_textures_[name] = LoadTexture(mat.texture_file->c_str());
+}
+
+void Robot::updateMaterial(const LinkNodePtr& link) {
     const Vector4 default_grey{0.5f, 0.5f, 0.5f, 1.0f};
+    const Texture2D default_texture = {rlGetTextureIdDefault(), 1, 1, 1,
+                                       PIXELFORMAT_UNCOMPRESSED_R8G8B8A8};
+
     for (size_t i = 0; i < link->link.visual.size(); ++i) {
         if (i >= link->visual_models.size()) break;
 
         Vector4 color = default_grey;
+        Texture2D texture = default_texture;
+
         const auto& mat_name = link->link.visual[i].material_name;
         if (mat_name) {
             auto it = materials_.find(*mat_name);
             if (it != materials_.end() && it->second.rgba) {
                 color = *it->second.rgba;
             }
+
+            auto tex_it = loaded_textures_.find(*mat_name);
+            if (tex_it != loaded_textures_.end()) {
+                texture = tex_it->second;
+            }
         }
-        set_material_diffuse_color(link->visual_models[i], color);
+
+        MaterialMap& diffuse = link->visual_models[i].materials[0].maps[MATERIAL_MAP_DIFFUSE];
+        diffuse.color = ColorFromNormalized(color);
+        diffuse.texture = texture;
     }
 }
 

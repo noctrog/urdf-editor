@@ -83,6 +83,14 @@ Mesh LoadMeshFromAssimp(const aiMesh* mesh) {
         memcpy(result.normals, mesh->mNormals, result.vertexCount * 3 * sizeof(float));
     }
 
+    if (mesh->HasTextureCoords(0)) {
+        result.texcoords = (float*)RL_MALLOC(result.vertexCount * 2 * sizeof(float));
+        for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
+            result.texcoords[i * 2]     = mesh->mTextureCoords[0][i].x;
+            result.texcoords[i * 2 + 1] = mesh->mTextureCoords[0][i].y;
+        }
+    }
+
     // Convert from assimp's unsigned int to raylib's unsigned short
     for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
         const aiFace* face = &mesh->mFaces[i];

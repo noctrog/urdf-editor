@@ -283,7 +283,11 @@ class Robot {
     const std::map<std::string, Material>& getMaterials() const;
     std::map<std::string, Material>& getMutableMaterials();
 
+    void loadTextures();
+    void reloadTexture(const std::string& material_name);
+
    private:
+    void loadTextureForMaterial(const std::string& name, const Material& mat);
     static Matrix originToMatrix(std::optional<Origin>& origin);
 
     LinkNodePtr root_;
@@ -293,6 +297,7 @@ class Robot {
     // std::map<std::string, std::vector<float>> q; // vector motivation: joints with multiple dof
 
     std::map<std::string, Material> materials_;
+    std::map<std::string, Texture2D> loaded_textures_;
 };
 
 using RobotPtr = std::shared_ptr<Robot>;
@@ -300,6 +305,8 @@ using RobotPtr = std::shared_ptr<Robot>;
 GeometryTypePtr cloneGeometry(const GeometryTypePtr& src);
 JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_parent,
                           const RobotPtr& robot);
+
+std::string resolveFilePath(const std::string& filename, const std::string& urdf_dir);
 
 RobotPtr buildRobot(const char* urdf_file);
 
