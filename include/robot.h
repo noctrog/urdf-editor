@@ -166,6 +166,13 @@ struct Calibration {
     float falling{0.0f};
 };
 
+struct SafetyController {
+    float k_velocity{0.0f};
+    float k_position{0.0f};
+    float soft_lower_limit{0.0f};
+    float soft_upper_limit{0.0f};
+};
+
 struct Link {
     Link() = default;
     explicit Link(std::string name);
@@ -189,6 +196,11 @@ struct Joint {
         kNumJointTypes
     };
 
+    // Returns true for joint types that have motion (revolute, continuous, prismatic).
+    bool isArticulated() const {
+        return type == kRevolute || type == kContinuous || type == kPrismatic;
+    }
+
     std::string name;
     Type type;
     std::string parent;
@@ -199,6 +211,7 @@ struct Joint {
     std::optional<Dynamics> dynamics;
     std::optional<Limit> limit;  // required only for prismatic and revolute
     std::optional<Mimic> mimic;
+    std::optional<SafetyController> safety_controller;
 };
 
 struct TreeNode {
@@ -246,6 +259,7 @@ struct JointNode : TreeNode {
     Joint joint;
     LinkNodePtr parent;
     LinkNodePtr child;
+    float q{0.0f};  // joint position (angle for revolute/continuous, displacement for prismatic)
 };
 
 struct ValidationMessage {
@@ -269,7 +283,8 @@ class Robot {
     void setShader(const Shader& shader);
 
     void draw(const LinkNodePtr& highlighted = nullptr,
-              const LinkNodePtr& selected = nullptr) const;
+              const LinkNodePtr& selected = nullptr,
+              bool show_collisions = true) const;
 
     LinkNodePtr getRoot() const;
 
@@ -293,8 +308,6 @@ class Robot {
     LinkNodePtr root_;
 
     Shader visual_shader_;
-
-    // std::map<std::string, std::vector<float>> q; // vector motivation: joints with multiple dof
 
     std::map<std::string, Material> materials_;
     std::map<std::string, Texture2D> loaded_textures_;

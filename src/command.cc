@@ -247,6 +247,14 @@ void CreateCalibrationCommand::execute() { target_ = urdf::Calibration(); }
 
 void CreateCalibrationCommand::undo() { target_ = std::nullopt; }
 
+CreateSafetyControllerCommand::CreateSafetyControllerCommand(
+    std::optional<urdf::SafetyController>& target)
+    : target_(target) {}
+
+void CreateSafetyControllerCommand::execute() { target_ = urdf::SafetyController(); }
+
+void CreateSafetyControllerCommand::undo() { target_ = std::nullopt; }
+
 ChangeGeometryCommand::ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry,
                                              urdf::GeometryTypePtr new_geometry,
                                              urdf::Geometry& target, Model& model,

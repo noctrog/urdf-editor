@@ -391,15 +391,7 @@ void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
 }
 
 void App::drawJointAxis(const urdf::JointNodePtr& joint) {
-    // Only revolute, continuous, and prismatic joints have a meaningful axis
-    switch (joint->joint.type) {
-        case urdf::Joint::kRevolute:
-        case urdf::Joint::kContinuous:
-        case urdf::Joint::kPrismatic:
-            break;
-        default:
-            return;
-    }
+    if (!joint->joint.isArticulated()) return;
 
     // Compute world-space joint transform: w_T_j = w_T_p * p_T_j
     const Matrix& w_t_p = joint->parent->w_T_l;
@@ -552,7 +544,7 @@ void App::drawScene(Rectangle viewport) {
 
     if (robot_) {
         const auto hovered_node = std::dynamic_pointer_cast<urdf::LinkNode>(hovered_node_);
-        robot_->draw(hovered_node, selected_link);
+        robot_->draw(hovered_node, selected_link, bShowCollisions_);
     }
 
     if (selected_link) {
@@ -799,6 +791,12 @@ void App::drawToolbar() {
         if (ImGui::BeginMenu("View")) {
             ImGui::MenuItem("Show Grid", nullptr, &bShowGrid_);
             ImGui::MenuItem("Supersampling AA", nullptr, &bSupersampling_);
+            ImGui::MenuItem("Show Collisions", nullptr, &bShowCollisions_);
+            ImGui::Separator();
+            if (ImGui::MenuItem("Reset All Joints", nullptr, false, robot_ != nullptr)) {
+                robot_->forEveryJoint([](const urdf::JointNodePtr& j) { j->q = 0.0f; });
+                robot_->forwardKinematics();
+            }
             ImGui::EndMenu();
         }
 
@@ -1127,6 +1125,18 @@ void App::drawNodeProperties() {
                 joint_node->joint.type, old_type, joint_node->joint.type));
         }
 
+        if (joint_node->joint.isArticulated()) {
+            auto fk = [this]() { robot_->forwardKinematics(); };
+            float min_val = -PI;
+            float max_val = PI;
+            if (joint_node->joint.limit &&
+                joint_node->joint.type != urdf::Joint::kContinuous) {
+                min_val = joint_node->joint.limit->lower;
+                max_val = joint_node->joint.limit->upper;
+            }
+            sliderFloatUndoable("Position##joint_q", joint_node->q, min_val, max_val, "%.3f", fk);
+        }
+
         ImGui::Text("Parent link: %s", joint_node->parent->link.name.c_str());
         ImGui::Text("Child link: %s", joint_node->child->link.name.c_str());
 
@@ -1137,6 +1147,7 @@ void App::drawNodeProperties() {
             menuLimit(joint_node->joint.limit);
             menuMimic(joint_node->joint.mimic);
             menuCalibration(joint_node->joint.calibration);
+            menuSafetyController(joint_node->joint.safety_controller);
         }
 
         ImGui::Separator();
@@ -1343,6 +1354,30 @@ void App::menuCalibration(std::optional<urdf::Calibration> &calibration) {
     }
 }
 
+void App::menuSafetyController(std::optional<urdf::SafetyController> &safety_controller) {
+    if (safety_controller) {
+        if (ImGui::TreeNode("Safety Controller")) {
+            inputFloatUndoable("k_velocity", safety_controller->k_velocity);
+            inputFloatUndoable("k_position", safety_controller->k_position);
+            inputFloatUndoable("soft_lower_limit", safety_controller->soft_lower_limit);
+            inputFloatUndoable("soft_upper_limit", safety_controller->soft_upper_limit);
+            if (ImGui::Button("Delete safety controller")) {
+                auto old_sc = *safety_controller;
+                safety_controller = std::nullopt;
+                command_buffer_.add(
+                    std::make_shared<UpdatePropertyCommand<std::optional<urdf::SafetyController>>>(
+                        safety_controller, old_sc, std::nullopt));
+            }
+            ImGui::TreePop();
+        }
+    } else {
+        if (ImGui::Button("Create safety controller")) {
+            command_buffer_.add(
+                std::make_shared<CreateSafetyControllerCommand>(safety_controller));
+        }
+    }
+}
+
 void App::menuGeometry(urdf::Geometry &geometry, Model &model) {
     if (ImGui::TreeNode("Geometry")) {
         if (urdf::GeometryTypePtr &type = geometry.type) {
@@ -1488,6 +1523,20 @@ void App::inputFloatUndoable(const char *label, float &value, float step, float 
                              const char *fmt, std::function<void()> post_action) {
     float pre = value;
     ImGui::InputFloat(label, &value, step, step_fast, fmt);
+    if (ImGui::IsItemActivated()) snapshot_float_ = pre;
+    if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<float>>(value, *snapshot_float_,
+                                                                           value, post_action));
+        snapshot_float_.reset();
+    }
+}
+
+void App::sliderFloatUndoable(const char *label, float &value, float min_val, float max_val,
+                              const char *fmt, std::function<void()> post_action) {
+    float pre = value;
+    if (ImGui::SliderFloat(label, &value, min_val, max_val, fmt)) {
+        if (post_action) post_action();
+    }
     if (ImGui::IsItemActivated()) snapshot_float_ = pre;
     if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_float_) {
         command_buffer_.add(std::make_shared<UpdatePropertyCommand<float>>(value, *snapshot_float_,

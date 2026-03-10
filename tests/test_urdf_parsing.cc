@@ -309,6 +309,54 @@ TEST_CASE("Joint calibration round-trip") {
     CHECK(j2.calibration->falling == doctest::Approx(2.5f));
 }
 
+TEST_CASE("Joint safety_controller round-trip") {
+    const char* xml = R"(
+        <joint name="j1" type="revolute">
+            <parent link="base"/>
+            <child link="arm"/>
+            <safety_controller k_velocity="10.5" k_position="20.0"
+                               soft_lower_limit="-1.0" soft_upper_limit="1.0"/>
+        </joint>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+    urdf::Joint joint = urdf::xmlNodeToJoint(doc.first_child());
+
+    REQUIRE(joint.safety_controller.has_value());
+    CHECK(joint.safety_controller->k_velocity == doctest::Approx(10.5f));
+    CHECK(joint.safety_controller->k_position == doctest::Approx(20.0f));
+    CHECK(joint.safety_controller->soft_lower_limit == doctest::Approx(-1.0f));
+    CHECK(joint.safety_controller->soft_upper_limit == doctest::Approx(1.0f));
+
+    // Export and re-parse
+    pugi::xml_document out_doc;
+    pugi::xml_node out_node = out_doc.append_child("joint");
+    urdf::jointToXmlNode(out_node, joint);
+
+    urdf::Joint j2 = urdf::xmlNodeToJoint(out_node);
+    REQUIRE(j2.safety_controller.has_value());
+    CHECK(j2.safety_controller->k_velocity == doctest::Approx(10.5f));
+    CHECK(j2.safety_controller->k_position == doctest::Approx(20.0f));
+    CHECK(j2.safety_controller->soft_lower_limit == doctest::Approx(-1.0f));
+    CHECK(j2.safety_controller->soft_upper_limit == doctest::Approx(1.0f));
+}
+
+TEST_CASE("Joint safety_controller absent by default") {
+    const char* xml = R"(
+        <joint name="j1" type="fixed">
+            <parent link="base"/>
+            <child link="arm"/>
+        </joint>
+    )";
+
+    pugi::xml_document doc;
+    doc.load_string(xml);
+    urdf::Joint joint = urdf::xmlNodeToJoint(doc.first_child());
+
+    CHECK_FALSE(joint.safety_controller.has_value());
+}
+
 TEST_CASE("Mesh scale round-trip") {
     const char* xml = R"(
         <geometry>

@@ -299,6 +299,7 @@ JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_p
         new_joint.limit = src_joint->joint.limit;
         new_joint.mimic = src_joint->joint.mimic;
         new_joint.calibration = src_joint->joint.calibration;
+        new_joint.safety_controller = src_joint->joint.safety_controller;
 
         auto new_joint_node =
             std::make_shared<JointNode>(std::move(new_joint), new_parent, new_link_node);
@@ -512,6 +513,14 @@ Joint xmlNodeToJoint(const pugi::xml_node& xml_node) {
         c.rising = cal_node.attribute("rising").as_float(0.0f);
         c.falling = cal_node.attribute("falling").as_float(0.0f);
         joint.calibration = c;
+    }
+    if (auto sc_node = xml_node.child("safety_controller")) {
+        SafetyController sc;
+        sc.k_velocity = sc_node.attribute("k_velocity").as_float(0.0f);
+        sc.k_position = sc_node.attribute("k_position").as_float(0.0f);
+        sc.soft_lower_limit = sc_node.attribute("soft_lower_limit").as_float(0.0f);
+        sc.soft_upper_limit = sc_node.attribute("soft_upper_limit").as_float(0.0f);
+        joint.safety_controller = sc;
     }
     return joint;
 }
@@ -745,6 +754,14 @@ void jointToXmlNode(pugi::xml_node& joint_node, const Joint& joint) {
         cal_node.append_attribute("rising") = joint.calibration->rising;
         cal_node.append_attribute("falling") = joint.calibration->falling;
     }
+
+    if (joint.safety_controller) {
+        pugi::xml_node sc_node = joint_node.append_child("safety_controller");
+        sc_node.append_attribute("k_velocity") = joint.safety_controller->k_velocity;
+        sc_node.append_attribute("k_position") = joint.safety_controller->k_position;
+        sc_node.append_attribute("soft_lower_limit") = joint.safety_controller->soft_lower_limit;
+        sc_node.append_attribute("soft_upper_limit") = joint.safety_controller->soft_upper_limit;
+    }
 }
 
 void inertialToXmlNode(pugi::xml_node& xml_node, const Inertial& inertial) {
@@ -850,7 +867,17 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
 
         for (auto& joint_node : node->children) {
             const Matrix p_t_j = originToMatrix(joint_node->joint.origin);
-            const Matrix j_t_c = MatrixIdentity();  // TODO(ramon): joint -> child transform
+            Matrix j_t_c = MatrixIdentity();
+            if (joint_node->joint.isArticulated()) {
+                Vector3 ax = joint_node->joint.axis ? joint_node->joint.axis->xyz
+                                                    : Vector3{0, 0, 1};
+                if (joint_node->joint.type == Joint::kPrismatic) {
+                    Vector3 d = Vector3Scale(ax, joint_node->q);
+                    j_t_c = MatrixTranslate(d.x, d.y, d.z);
+                } else {
+                    j_t_c = MatrixRotate(ax, joint_node->q);
+                }
+            }
             const Matrix w_t_c = MatMul(w_t_p, MatMul(p_t_j, j_t_c));
             joint_node->child->w_T_l = w_t_c;
 
@@ -862,7 +889,7 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
                 joint_node->child->visual_models[i].transform = w_t_v;
             }
 
-            // Update collision transform
+            // Update collision transforms
             for (size_t i = 0; i < joint_node->child->collision_models.size(); ++i) {
                 const Matrix c_t_col = originToMatrix(joint_node->child->link.collision[i].origin);
                 const Matrix w_t_col = MatMul(w_t_c, c_t_col);
@@ -962,7 +989,8 @@ void Robot::updateMaterial(const LinkNodePtr& link) {
     }
 }
 
-void Robot::draw(const LinkNodePtr& highlighted, const LinkNodePtr& selected) const {
+void Robot::draw(const LinkNodePtr& highlighted, const LinkNodePtr& selected,
+                 bool show_collisions) const {
     auto draw_link = [&](const LinkNodePtr& link) {
         for (const Model& vm : link->visual_models) {
             if (vm.meshCount > 0) {
@@ -973,11 +1001,13 @@ void Robot::draw(const LinkNodePtr& highlighted, const LinkNodePtr& selected) co
                 }
             }
         }
-        for (const Model& model : link->collision_models) {
-            if (selected.get() == link.get()) {
-                DrawModelWires(model, Vector3Zero(), 1.0, GREEN);
-            } else {
-                DrawModelWires(model, Vector3Zero(), 1.0, GRAY);
+        if (show_collisions) {
+            for (const Model& model : link->collision_models) {
+                if (selected.get() == link.get()) {
+                    DrawModelWires(model, Vector3Zero(), 1.0, GREEN);
+                } else {
+                    DrawModelWires(model, Vector3Zero(), 1.0, GRAY);
+                }
             }
         }
     };

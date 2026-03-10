@@ -58,6 +58,7 @@ class App {
     void menuLimit(std::optional<urdf::Limit>& limit);
     void menuMimic(std::optional<urdf::Mimic>& mimic);
     void menuCalibration(std::optional<urdf::Calibration>& calibration);
+    void menuSafetyController(std::optional<urdf::SafetyController>& safety_controller);
 
     void menuPropertiesInertial(urdf::LinkNodePtr link_node);
     void menuPropertiesCollisions(urdf::LinkNodePtr link_node, int i);
@@ -81,6 +82,7 @@ class App {
 
     bool bShowGrid_;
     bool bSupersampling_{true};
+    bool bShowCollisions_{true};
     bool bWindowShouldClose_;
     int menubar_height_{0};
 
@@ -111,6 +113,9 @@ class App {
 
     void inputFloatUndoable(const char* label, float& value, float step = 0, float step_fast = 0,
                             const char* fmt = "%.3f", std::function<void()> post_action = nullptr);
+    void sliderFloatUndoable(const char* label, float& value, float min_val, float max_val,
+                             const char* fmt = "%.3f",
+                             std::function<void()> post_action = nullptr);
     void inputFloat3Undoable(const char* label, Vector3& vec, const char* fmt = "%.3f",
                              std::function<void()> post_action = nullptr);
     void inputTextUndoable(const char* label, std::string& str,

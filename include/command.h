@@ -202,6 +202,16 @@ class CreateCalibrationCommand : public Command {
     std::optional<urdf::Calibration>& target_;
 };
 
+class CreateSafetyControllerCommand : public Command {
+   public:
+    explicit CreateSafetyControllerCommand(std::optional<urdf::SafetyController>& target);
+    void execute() override;
+    void undo() override;
+
+   private:
+    std::optional<urdf::SafetyController>& target_;
+};
+
 class ChangeGeometryCommand : public Command {
    public:
     ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry, urdf::GeometryTypePtr new_geometry,
