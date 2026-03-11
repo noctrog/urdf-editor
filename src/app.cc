@@ -181,7 +181,9 @@ void App::run() {
     while (not bWindowShouldClose_) {
         update();
         draw();
-        bWindowShouldClose_ |= WindowShouldClose();
+        if (WindowShouldClose()) {
+            guardUnsavedChanges([this]() { bWindowShouldClose_ = true; });
+        }
     }
 
     cleanup();
@@ -220,6 +222,7 @@ void App::setup() {
 
     gizmo_ = rgizmo_create();
 
+    SetExitKey(KEY_NULL);
     SetTargetFPS(kTargetFps);
     rlImGuiSetup(true);
 }
@@ -324,6 +327,7 @@ void App::drawMenu() {
         } else {
             if (ImGui::Button("Save anyway")) {
                 exportRobot(*robot_, pending_save_path_);
+                command_buffer_.setSavePoint();
                 LOG_F(INFO, "Saved with warnings: %s", pending_save_path_.c_str());
                 ImGui::CloseCurrentPopup();
             }
@@ -331,6 +335,27 @@ void App::drawMenu() {
             if (ImGui::Button("Cancel")) {
                 ImGui::CloseCurrentPopup();
             }
+        }
+        ImGui::EndPopup();
+    }
+
+    // Unsaved-changes confirmation modal
+    if (pending_discard_) {
+        ImGui::OpenPopup("Unsaved Changes");
+        pending_discard_ = false;
+    }
+    if (ImGui::BeginPopupModal("Unsaved Changes", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::Text("You have unsaved changes. Discard them?");
+        ImGui::Separator();
+        if (ImGui::Button("Discard")) {
+            if (discard_action_) discard_action_();
+            discard_action_ = nullptr;
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) {
+            discard_action_ = nullptr;
+            ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
     }
@@ -667,6 +692,15 @@ void App::draw() {
     EndDrawing();
 }
 
+void App::guardUnsavedChanges(std::function<void()> action) {
+    if (command_buffer_.isDirty()) {
+        discard_action_ = std::move(action);
+        pending_discard_ = true;
+    } else {
+        action();
+    }
+}
+
 void App::openFile() {
     NFD::UniquePath out_path;
     nfdfilteritem_t filter_item[2] = {{"URDF file", "urdf,xml"}};
@@ -689,6 +723,7 @@ void App::saveFile() {
         if (validation_results_.empty()) {
             LOG_F(INFO, "Success! %s", out_path.get());
             exportRobot(*robot_, out_path.get());
+            command_buffer_.setSavePoint();
         } else {
             pending_save_ = true;
             pending_save_path_ = out_path.get();
@@ -714,13 +749,16 @@ void App::handleShortcuts() {
         command_buffer_.redo();
     }
     if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_O)) {
-        openFile();
+        guardUnsavedChanges([this]() { command_buffer_.reset(); openFile(); });
     }
     if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_S)) {
         if (robot_) saveFile();
     }
     if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_N)) {
-        command_buffer_.add(std::make_shared<CreateRobotCommand>(robot_, shader_));
+        guardUnsavedChanges([this]() {
+            command_buffer_.reset();
+            command_buffer_.add(std::make_shared<CreateRobotCommand>(robot_, shader_));
+        });
     }
     if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_J)) {
         auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
@@ -750,7 +788,7 @@ void App::drawToolbar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open", fmt::format("{}+O", kModName).c_str())) {
-                openFile();
+                guardUnsavedChanges([this]() { command_buffer_.reset(); openFile(); });
             }
 
             if (ImGui::MenuItem("Save", fmt::format("{}+S", kModName).c_str(), false,
@@ -758,7 +796,7 @@ void App::drawToolbar() {
                 saveFile();
             }
             if (ImGui::MenuItem("Exit", "Alt+F4")) {
-                bWindowShouldClose_ = true;
+                guardUnsavedChanges([this]() { bWindowShouldClose_ = true; });
             }
 
             ImGui::EndMenu();
@@ -775,7 +813,10 @@ void App::drawToolbar() {
             }
             ImGui::Separator();
             if (ImGui::MenuItem("New Robot", fmt::format("{}+N", kModName).c_str())) {
-                command_buffer_.add(std::make_shared<CreateRobotCommand>(robot_, shader_));
+                guardUnsavedChanges([this]() {
+                    command_buffer_.reset();
+                    command_buffer_.add(std::make_shared<CreateRobotCommand>(robot_, shader_));
+                });
             }
             auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_);
             if (ImGui::MenuItem("Create Joint", fmt::format("{}+J", kModName).c_str(), false,

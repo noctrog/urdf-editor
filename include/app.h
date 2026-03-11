@@ -47,6 +47,7 @@ class App {
     void openFile();
     void saveFile();
     void deleteSelectedJoint();
+    void guardUnsavedChanges(std::function<void()> action);
 
     void originGui(urdf::Origin& origin);
 
@@ -100,6 +101,10 @@ class App {
     std::vector<urdf::ValidationMessage> validation_results_;
     bool pending_save_ = false;
     std::string pending_save_path_;
+
+    // Unsaved-changes guard
+    bool pending_discard_ = false;
+    std::function<void()> discard_action_;
 
     RGizmo gizmo_;
 

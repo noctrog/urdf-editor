@@ -50,13 +50,18 @@ class CommandBuffer {
     void undo();
     void redo();
 
-    bool canUndo();
-    bool canRedo();
+    bool canUndo() const;
+    bool canRedo() const;
+
+    bool isDirty() const;
+    void setSavePoint();
+    void reset();
 
    private:
     std::vector<CommandPtr> executed_commands_;
     std::vector<CommandPtr> new_commands_;
     size_t current_command_;
+    size_t save_point_ = 0;
 };
 
 class CreateRobotCommand : public Command {

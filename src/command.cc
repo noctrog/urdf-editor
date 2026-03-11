@@ -18,11 +18,12 @@ void CommandBuffer::add(CommandPtr command) {
 void CommandBuffer::execute() {
     if (new_commands_.empty()) return;
 
-    // Delete all commands that were executed after the current command
-    // This will only happen after undoing some commands
-    if (executed_commands_.begin() + current_command_ != executed_commands_.end()) {
+    // Discard any commands after the current position (happens after undo)
+    if (current_command_ < executed_commands_.size()) {
         executed_commands_.erase(executed_commands_.begin() + current_command_,
                                  executed_commands_.end());
+        // If the save point was in the erased range, the saved state is unreachable
+        if (save_point_ > current_command_) save_point_ = current_command_;
     }
 
     for (const auto& command : new_commands_) {
@@ -35,25 +36,32 @@ void CommandBuffer::execute() {
 }
 
 void CommandBuffer::undo() {
-    if (executed_commands_.begin() + current_command_ == executed_commands_.begin()) return;
+    if (current_command_ == 0) return;
 
-    (*(executed_commands_.begin() + current_command_ - 1))->undo();
+    executed_commands_[current_command_ - 1]->undo();
     current_command_--;
 }
 
 void CommandBuffer::redo() {
-    if (executed_commands_.begin() + current_command_ == executed_commands_.end()) return;
+    if (current_command_ == executed_commands_.size()) return;
 
-    (*(executed_commands_.begin() + current_command_))->execute();
+    executed_commands_[current_command_]->execute();
     current_command_++;
 }
 
-bool CommandBuffer::canUndo() {
-    return executed_commands_.begin() + current_command_ != executed_commands_.begin();
-}
+bool CommandBuffer::canUndo() const { return current_command_ > 0; }
 
-bool CommandBuffer::canRedo() {
-    return executed_commands_.begin() + current_command_ != executed_commands_.end();
+bool CommandBuffer::canRedo() const { return current_command_ < executed_commands_.size(); }
+
+bool CommandBuffer::isDirty() const { return current_command_ != save_point_; }
+
+void CommandBuffer::setSavePoint() { save_point_ = current_command_; }
+
+void CommandBuffer::reset() {
+    executed_commands_.clear();
+    new_commands_.clear();
+    current_command_ = 0;
+    save_point_ = 0;
 }
 
 CreateRobotCommand::CreateRobotCommand(std::shared_ptr<urdf::Robot>& robot, const Shader& shader)
