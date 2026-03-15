@@ -101,6 +101,11 @@ You can also change the mesh file at runtime by clicking the `...` button next
 to the filename in the Geometry section and selecting a new `.dae` or `.stl`
 file.
 
+# Acknowledgements
+
+- [raylib](https://github.com/raysan5/raylib) - A simple and easy-to-use library to enjoy videogames programming
+- [raygizmo](https://github.com/alexeykarnachev/raygizmo) - A simple 3D transformation gizmo for raylib
+
 # Contributing
 
 Contributions are always welcome! Feel free to open an issue or create a merge
