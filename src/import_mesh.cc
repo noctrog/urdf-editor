@@ -4,6 +4,7 @@
 
 #include <assimp/Importer.hpp>
 #include <loguru.hpp>
+#include <raymath.h>
 
 ::Mesh GenMeshCenteredCylinder(float radius, float height, int slices) {
     ::Mesh mesh = {0};
@@ -126,6 +127,7 @@ std::vector<Mesh> LoadMeshesFromFile(const std::string& filename) {
 
 Model LoadModelFromFile(const std::string& filename) {
     Model model = {};
+    model.transform = MatrixIdentity();
     std::vector<Mesh> meshes = LoadMeshesFromFile(filename);
     model.meshCount = meshes.size();
     model.meshes = (Mesh*)RL_MALLOC(model.meshCount * sizeof(Mesh));
