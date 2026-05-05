@@ -2,6 +2,9 @@
 #include <pugixml.hpp>
 #include <robot.h>
 
+#include <filesystem>
+#include <fstream>
+
 TEST_CASE("Material round-trip (color)") {
     pugi::xml_document doc;
     doc.load_string(R"(<material name="red"><color rgba="1 0 0 1"/></material>)");
@@ -484,6 +487,46 @@ TEST_CASE("Inline material promotion") {
     REQUIRE(materials["inline_red"].rgba.has_value());
     CHECK(materials["inline_red"].rgba->x == doctest::Approx(1.0f));
     CHECK(materials["inline_red"].rgba->y == doctest::Approx(0.0f));
+}
+
+TEST_CASE("Anonymous inline material gets generated name") {
+    const auto urdf_path =
+        std::filesystem::temp_directory_path() / "urdf_editor_anonymous_inline_material.urdf";
+
+    std::ofstream urdf_file(urdf_path);
+    urdf_file << R"(
+        <robot name="test">
+            <link name="base_link">
+                <visual>
+                    <geometry><box size="1 1 1"/></geometry>
+                    <material name="">
+                        <color rgba="0.1 0.2 0.3 1"/>
+                    </material>
+                </visual>
+            </link>
+        </robot>
+    )";
+    urdf_file.close();
+
+    auto robot = urdf::buildRobot(urdf_path.string().c_str());
+
+    REQUIRE(robot);
+    REQUIRE(robot->getRoot());
+    REQUIRE(robot->getRoot()->link.visual.size() == 1);
+    REQUIRE(robot->getRoot()->link.visual[0].material_name.has_value());
+
+    const std::string material_name = *robot->getRoot()->link.visual[0].material_name;
+    CHECK(material_name == "__inline_material_0");
+
+    const auto& materials = robot->getMaterials();
+    REQUIRE(materials.count(material_name) == 1);
+    REQUIRE(materials.at(material_name).rgba.has_value());
+    CHECK(materials.at(material_name).rgba->x == doctest::Approx(0.1f));
+    CHECK(materials.at(material_name).rgba->y == doctest::Approx(0.2f));
+    CHECK(materials.at(material_name).rgba->z == doctest::Approx(0.3f));
+    CHECK(materials.at(material_name).rgba->w == doctest::Approx(1.0f));
+
+    std::filesystem::remove(urdf_path);
 }
 
 TEST_CASE("Inertial round-trip") {
