@@ -43,6 +43,10 @@ set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_COLLADA_IMPORTER ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_STL_IMPORTER ON CACHE BOOL "" FORCE)
+# Assimp 5.4.3 can detect system minizip but still include <unzip.h>,
+# while some distros install it as <minizip/unzip.h>.
+set(ASSIMP_BUILD_MINIZIP ON CACHE BOOL "" FORCE)
+set(UNZIP_FOUND OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   assimp
   GIT_REPOSITORY https://github.com/assimp/assimp.git
