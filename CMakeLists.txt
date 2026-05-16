@@ -5,6 +5,14 @@ project(urdf-editor)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+function(target_project_warnings target)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4)
+  elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang|AppleClang")
+    target_compile_options(${target} PRIVATE -Wall -Wfloat-conversion -pedantic)
+  endif()
+endfunction()
+
 include(FetchContent)
 FetchContent_Declare(
   raylib
@@ -39,7 +47,13 @@ FetchContent_Declare(
 set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
+if(APPLE)
+  set(ASSIMP_BUILD_ZLIB OFF CACHE BOOL "" FORCE)
+else()
+  set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+endif()
 set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_COLLADA_IMPORTER ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_STL_IMPORTER ON CACHE BOOL "" FORCE)
@@ -80,7 +94,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE include ${raylib_SOURCE_DIR}/
 
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib imgui pugixml loguru nfd fmt assimp)
 
-target_compile_options(${PROJECT_NAME} PUBLIC -Wall -Wfloat-conversion -pedantic)
+target_project_warnings(${PROJECT_NAME})
 
 # Tests
 option(BUILD_TESTING "Build unit tests" ON)
@@ -107,6 +121,6 @@ if(BUILD_TESTING)
     )
     target_include_directories(unit_tests PRIVATE include ${raylib_SOURCE_DIR}/src/external)
     target_link_libraries(unit_tests PRIVATE doctest::doctest raylib pugixml loguru fmt assimp)
-    target_compile_options(unit_tests PRIVATE -Wall -Wfloat-conversion -pedantic)
+    target_project_warnings(unit_tests)
     add_test(NAME unit_tests COMMAND unit_tests)
 endif()

@@ -3,12 +3,13 @@
 #include <raylib.h>
 #include <raymath.h>
 
+#include <cmath>
 #include <functional>
 #include <map>
 #include <memory>
 #include <optional>
-#include <ostream>
 #include <pugixml.hpp>
+#include <string>
 #include <vector>
 
 namespace urdf {
