@@ -1,5 +1,6 @@
 #include <command.h>
 #include <fmt/format.h>
+#include <loguru.hpp>
 #include <robot.h>
 
 #include <algorithm>
@@ -618,33 +619,63 @@ UpdateGeometryMeshCommand::UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>
       model_(model),
       shader_(shader) {}
 
-void UpdateGeometryMeshCommand::execute() {
-    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
-    const Matrix t = model_.transform;
-    mesh_->filename = new_filename_;
-    mesh_->resolved_path = new_filename_;
-
-    UnloadModel(model_);
-    model_ = Model{};
-    if (std::filesystem::exists(mesh_->resolved_path)) {
-        model_ = mesh_->generateGeometry();
+bool UpdateGeometryMeshCommand::replaceModel(const std::string& filename,
+                                             const std::string& resolved_path) {
+    if (!std::filesystem::exists(resolved_path)) {
+        LOG_F(WARNING, "Mesh file does not exist: %s", resolved_path.c_str());
+        return false;
     }
 
-    model_.materials[0].shader = shader_;
-    model_.transform = t;
-    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+    urdf::Mesh replacement_mesh(filename.c_str(), resolved_path, mesh_->scale);
+    Model replacement = replacement_mesh.generateGeometry();
+
+    bool has_geometry = false;
+    if (replacement.meshes != nullptr) {
+        for (int i = 0; i < replacement.meshCount; ++i) {
+            if (replacement.meshes[i].vertexCount > 0) {
+                has_geometry = true;
+                break;
+            }
+        }
+    }
+    const bool has_material = replacement.materialCount > 0 && replacement.materials != nullptr &&
+                              replacement.materials[0].maps != nullptr;
+    if (!has_geometry || !has_material) {
+        LOG_F(WARNING, "Mesh file could not be loaded: %s", resolved_path.c_str());
+        UnloadModel(replacement);
+        return false;
+    }
+
+    const Matrix transform = model_.transform;
+    MaterialMap diffuse = replacement.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    if (model_.materialCount > 0 && model_.materials != nullptr &&
+        model_.materials[0].maps != nullptr) {
+        diffuse = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    }
+
+    replacement.materials[0].shader = shader_;
+    replacement.transform = transform;
+    replacement.materials[0].maps[MATERIAL_MAP_DIFFUSE] = diffuse;
+
+    UnloadModel(model_);
+    model_ = replacement;
+    mesh_->filename = filename;
+    mesh_->resolved_path = resolved_path;
+    return true;
+}
+
+void UpdateGeometryMeshCommand::execute() {
+    std::string resolved_path = new_filename_;
+    constexpr const char* package_prefix = "package://";
+    if (new_filename_.rfind(package_prefix, 0) == 0) {
+        const auto old_mesh_dir = std::filesystem::path(old_resolved_path_).parent_path();
+        resolved_path = urdf::resolveFilePath(new_filename_, old_mesh_dir.string());
+    }
+    applied_ = replaceModel(new_filename_, resolved_path);
 }
 
 void UpdateGeometryMeshCommand::undo() {
-    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
-    const Matrix t = model_.transform;
-    mesh_->filename = old_filename_;
-    mesh_->resolved_path = old_resolved_path_;
+    if (!applied_) return;
 
-    UnloadModel(model_);
-    model_ = mesh_->generateGeometry();
-
-    model_.materials[0].shader = shader_;
-    model_.transform = t;
-    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+    replaceModel(old_filename_, old_resolved_path_);
 }

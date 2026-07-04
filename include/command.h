@@ -415,10 +415,13 @@ class UpdateGeometryMeshCommand : public Command {
     void undo() override;
 
    private:
+    bool replaceModel(const std::string& filename, const std::string& resolved_path);
+
     std::string new_filename_;
     std::string old_filename_;
     std::string old_resolved_path_;
     std::shared_ptr<urdf::Mesh> mesh_;
     Model& model_;
     const Shader& shader_;
+    bool applied_ = false;
 };
