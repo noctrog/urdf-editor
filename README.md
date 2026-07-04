@@ -79,12 +79,11 @@ cmake --build build -j$(sysctl -n hw.ncpu)
 URDF files often reference mesh geometries (`.dae`, `.stl`) using different path
 styles. The editor resolves them as follows:
 
-- **`package://` paths** (common in ROS): The editor strips the `package://`
-  prefix and walks up the directory tree from the URDF file's location until it
-  finds a `package.xml`. The remaining path is then resolved relative to that
-  package root. This means you don't need ROS installed — as long as your URDF
-  sits inside a standard ROS package directory structure, mesh paths will resolve
-  correctly.
+- **`package://` paths** (common in ROS): The editor uses the package name in
+  the URI. It first checks whether the URDF is inside that package, then searches
+  the entries in `ROS_PACKAGE_PATH`. Same-package paths therefore work without
+  ROS installed; references to another package require a sourced ROS environment
+  that exposes the target package.
 
 - **Relative paths**: Resolved relative to the directory containing the URDF
   file.
@@ -93,9 +92,9 @@ styles. The editor resolves them as follows:
 
 If you're working outside of a ROS workspace, the simplest approach is to place
 your mesh files relative to the URDF file and use relative paths in the
-`<mesh filename="..."/>` attribute. If your URDF uses `package://` paths, make
-sure there is a `package.xml` somewhere in the parent directories above the URDF
-file.
+`<mesh filename="..."/>` attribute. If your URDF uses `package://` paths for its
+own package, make sure its matching `package.xml` is in a parent directory. For
+cross-package paths, source the ROS workspace before starting the editor.
 
 You can also change the mesh file at runtime by clicking the `...` button next
 to the filename in the Geometry section and selecting a new `.dae` or `.stl`
