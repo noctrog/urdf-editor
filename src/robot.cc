@@ -28,6 +28,13 @@ static inline Matrix MatMul(const Matrix& left, const Matrix& right) {
     return MatrixMultiply(right, left);
 }
 
+static Matrix geometryLocalTransform(const Geometry& geometry) {
+    const auto mesh = std::dynamic_pointer_cast<Mesh>(geometry.type);
+    if (!mesh) return MatrixIdentity();
+
+    return MatrixScale(mesh->scale.x, mesh->scale.y, mesh->scale.z);
+}
+
 static void storeFloat(const char* s, float& f) {
     std::stringstream iss(s);
     iss >> f;
@@ -907,13 +914,18 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
     auto update_link_models = [](const LinkNodePtr& node) {
         for (size_t i = 0; i < node->visual_models.size() && i < node->link.visual.size(); ++i) {
             const Matrix l_t_v = originToMatrix(node->link.visual[i].origin);
-            node->visual_models[i].transform = MatMul(node->w_T_l, l_t_v);
+            const Matrix v_t_geometry = geometryLocalTransform(node->link.visual[i].geometry);
+            node->visual_models[i].transform =
+                MatMul(node->w_T_l, MatMul(l_t_v, v_t_geometry));
         }
 
         for (size_t i = 0; i < node->collision_models.size() && i < node->link.collision.size();
              ++i) {
             const Matrix l_t_col = originToMatrix(node->link.collision[i].origin);
-            node->collision_models[i].transform = MatMul(node->w_T_l, l_t_col);
+            const Matrix col_t_geometry =
+                geometryLocalTransform(node->link.collision[i].geometry);
+            node->collision_models[i].transform =
+                MatMul(node->w_T_l, MatMul(l_t_col, col_t_geometry));
         }
     };
 

@@ -106,6 +106,53 @@ TEST_CASE("Forward kinematics updates root visual transform") {
     CHECK(root->visual_models[0].transform.m14 == doctest::Approx(3.75f));
 }
 
+TEST_CASE("Forward kinematics preserves root mesh scale") {
+    auto root = std::make_shared<urdf::LinkNode>(urdf::Link("root"), nullptr);
+    root->w_T_l = MatrixTranslate(1.0f, 2.0f, 3.0f);
+
+    urdf::Visual visual;
+    visual.origin = urdf::Origin(Vector3{0.25f, 0.5f, 0.75f}, Vector3{0.0f, 0.0f, PI / 2.0f});
+    visual.geometry.type =
+        std::make_shared<urdf::Mesh>("visual.stl", "", Vector3{2.0f, 3.0f, 4.0f});
+    root->link.visual.push_back(visual);
+    root->visual_models.push_back(Model{});
+
+    urdf::Collision collision;
+    collision.origin =
+        urdf::Origin(Vector3{-0.25f, -0.5f, -0.75f}, Vector3{0.0f, PI / 2.0f, 0.0f});
+    collision.geometry.type =
+        std::make_shared<urdf::Mesh>("collision.stl", "", Vector3{5.0f, 6.0f, 7.0f});
+    root->link.collision.push_back(collision);
+    root->collision_models.push_back(Model{});
+
+    // Repeated updates must rebuild the model transforms without accumulating scale.
+    urdf::Robot::forwardKinematics(root);
+    urdf::Robot::forwardKinematics(root);
+
+    const Matrix& visual_transform = root->visual_models[0].transform;
+    CHECK(Vector3Length({visual_transform.m0, visual_transform.m1, visual_transform.m2}) ==
+          doctest::Approx(2.0f));
+    CHECK(Vector3Length({visual_transform.m4, visual_transform.m5, visual_transform.m6}) ==
+          doctest::Approx(3.0f));
+    CHECK(Vector3Length({visual_transform.m8, visual_transform.m9, visual_transform.m10}) ==
+          doctest::Approx(4.0f));
+    CHECK(visual_transform.m12 == doctest::Approx(1.25f));
+    CHECK(visual_transform.m13 == doctest::Approx(2.5f));
+    CHECK(visual_transform.m14 == doctest::Approx(3.75f));
+
+    const Matrix& collision_transform = root->collision_models[0].transform;
+    CHECK(Vector3Length({collision_transform.m0, collision_transform.m1, collision_transform.m2}) ==
+          doctest::Approx(5.0f));
+    CHECK(Vector3Length({collision_transform.m4, collision_transform.m5, collision_transform.m6}) ==
+          doctest::Approx(6.0f));
+    CHECK(Vector3Length(
+              {collision_transform.m8, collision_transform.m9, collision_transform.m10}) ==
+          doctest::Approx(7.0f));
+    CHECK(collision_transform.m12 == doctest::Approx(0.75f));
+    CHECK(collision_transform.m13 == doctest::Approx(1.5f));
+    CHECK(collision_transform.m14 == doctest::Approx(2.25f));
+}
+
 TEST_CASE("Forward kinematics keeps Diablo wheel assemblies on correct sides") {
     auto root = std::make_shared<urdf::LinkNode>(urdf::Link("base_link"), nullptr);
 
