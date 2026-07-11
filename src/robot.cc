@@ -46,6 +46,15 @@ static void storeVec4(const char* s, Vector4& vec) {
     CHECK_F(iss && (iss >> std::ws).eof(), "store_vec4: invalid string");
 }
 
+static std::string makeAnonymousInlineMaterialName(
+    const std::map<std::string, Material>& materials, size_t& anonymous_material_count) {
+    std::string name;
+    do {
+        name = fmt::format("__inline_material_{}", anonymous_material_count++);
+    } while (materials.find(name) != materials.end());
+    return name;
+}
+
 std::string resolveFilePath(const std::string& mesh_filename, const std::string& urdf_dir) {
     namespace fs = std::filesystem;
 
@@ -358,10 +367,6 @@ RobotPtr buildRobot(const char* urdf_file) {
     pugi::xml_node root_link = findRoot(doc);
     CHECK_F(not root_link.empty(), "No root link found");
 
-    auto tree_root = std::make_shared<LinkNode>();
-    tree_root->link = xmlNodeToLink(root_link, urdf_dir);
-    tree_root->w_T_l = MatrixIdentity();
-
     // Create all materials (global definitions first)
     std::map<std::string, Material> materials;
     for (pugi::xml_node& mat : doc.child("robot").children("material")) {
@@ -371,10 +376,18 @@ RobotPtr buildRobot(const char* urdf_file) {
     }
 
     // Promote inline material definitions (materials defined inside <visual>) to the global map
-    for (const pugi::xml_node& link : doc.child("robot").children("link")) {
-        for (const pugi::xml_node& vis : link.children("visual")) {
-            const pugi::xml_node& mat_node = vis.child("material");
+    size_t anonymous_material_count = 0;
+    for (pugi::xml_node link : doc.child("robot").children("link")) {
+        for (pugi::xml_node vis : link.children("visual")) {
+            pugi::xml_node mat_node = vis.child("material");
             if (mat_node && (mat_node.child("color") || mat_node.child("texture"))) {
+                pugi::xml_attribute name_attr = mat_node.attribute("name");
+                if (!name_attr || std::strlen(name_attr.as_string()) == 0) {
+                    if (!name_attr) name_attr = mat_node.append_attribute("name");
+                    const std::string generated_name =
+                        makeAnonymousInlineMaterialName(materials, anonymous_material_count);
+                    name_attr.set_value(generated_name.c_str());
+                }
                 if (const auto m = xmlNodeToMaterial(mat_node)) {
                     materials.insert({m->name, *m});
                 }
@@ -387,6 +400,10 @@ RobotPtr buildRobot(const char* urdf_file) {
             mat.texture_file = resolveFilePath(*mat.texture_file, urdf_dir);
         }
     }
+
+    auto tree_root = std::make_shared<LinkNode>();
+    tree_root->link = xmlNodeToLink(root_link, urdf_dir);
+    tree_root->w_T_l = MatrixIdentity();
 
     // TODO(ramon): every link uses the same shader, the material properties change the shader
     // color.
@@ -484,8 +501,8 @@ Link xmlNodeToLink(const pugi::xml_node& xml_node, const std::string& urdf_dir) 
 
         // --- Material
         if (const auto& mat_node = vis_node.child("material")) {
-            vis.material_name = mat_node.attribute("name").as_string();
-            CHECK_F(not vis.material_name->empty(), "Materials need to have a name!");
+            std::string material_name = mat_node.attribute("name").as_string();
+            if (not material_name.empty()) vis.material_name = material_name;
         }
 
         link.visual.push_back(vis);
@@ -610,7 +627,10 @@ std::optional<Material> xmlNodeToMaterial(const pugi::xml_node& mat_node) {
     Material mat;
 
     mat.name = mat_node.attribute("name").as_string();
-    CHECK_F(not mat.name.empty(), "Materials need to have a name!");
+    if (mat.name.empty()) {
+        LOG_F(WARNING, "Ignoring material without a name");
+        return std::nullopt;
+    }
 
     if (auto color_node = mat_node.child("color")) {
         CHECK_F(static_cast<bool>(color_node.attribute("rgba")),
