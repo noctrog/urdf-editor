@@ -6,15 +6,25 @@
 #include <functional>
 #include <string>
 
+// Represents a reversible editor operation.
+//
+// Implementations must make execute() safe to call again after undo() so the
+// command buffer can redo the operation.
 class Command {
    public:
     virtual ~Command() = default;
+    // Applies this operation.
     virtual void execute() = 0;
+    // Restores the state that existed before execute().
     virtual void undo() = 0;
 };
 
 using CommandPtr = std::shared_ptr<Command>;
 
+// Changes one value and optionally refreshes dependent state after each change.
+//
+// Args:
+//   T: Value type copied into the command's before and after snapshots.
 template <typename T>
 class UpdatePropertyCommand : public Command {
    public:
@@ -41,20 +51,33 @@ class UpdatePropertyCommand : public Command {
     std::function<void()> post_action_;
 };
 
+// Maintains the undo/redo history and the document's saved-state marker.
+//
+// Commands before current_command_ have been applied; later entries can be
+// redone. Adding a command after undo discards that redo branch.
 class CommandBuffer {
    public:
     CommandBuffer();
 
+    // Queues a command to be applied by execute().
     void add(CommandPtr command);
+    // Executes the next queued command and records it in history.
     void execute();
+    // Reverts the most recently executed command, if any.
     void undo();
+    // Reapplies the next reverted command, if any.
     void redo();
 
+    // Returns whether there is an applied command to undo.
     bool canUndo() const;
+    // Returns whether there is a reverted command to redo.
     bool canRedo() const;
 
+    // Returns whether the history position differs from the saved position.
     bool isDirty() const;
+    // Marks the current history position as the saved document state.
     void setSavePoint();
+    // Drops all command history and marks the result as saved.
     void reset();
 
    private:
@@ -64,6 +87,7 @@ class CommandBuffer {
     size_t save_point_ = 0;
 };
 
+// Replaces the active robot with a new empty robot while preserving undo state.
 class CreateRobotCommand : public Command {
    public:
     CreateRobotCommand(std::shared_ptr<urdf::Robot>& robot, const Shader& shader);
@@ -76,6 +100,7 @@ class CreateRobotCommand : public Command {
     const Shader& shader_;
 };
 
+// Loads a robot from disk and swaps it into the active document.
 class LoadRobotCommand : public Command {
    public:
     LoadRobotCommand(std::string filename, std::shared_ptr<urdf::Robot>& robot, Shader& shader);
@@ -90,6 +115,7 @@ class LoadRobotCommand : public Command {
     const Shader& shader_;
 };
 
+// Reparents a joint and its child subtree to a different link.
 class JointChangeParentCommand : public Command {
    public:
     JointChangeParentCommand(const urdf::JointNodePtr& node, const urdf::LinkNodePtr& new_parent,
@@ -105,6 +131,7 @@ class JointChangeParentCommand : public Command {
     std::vector<urdf::JointNodePtr>::iterator old_position_;
 };
 
+// Adds a uniquely named fixed joint and child link beneath a parent link.
 class CreateJointCommand : public Command {
    public:
     CreateJointCommand(const char* joint_name, urdf::LinkNodePtr& parent, urdf::RobotPtr& robot);
@@ -132,9 +159,11 @@ class DeleteJointCommand : public Command {
     urdf::RobotPtr& robot_;
     urdf::TreeNodePtr& selected_node_;
     urdf::OriginRawPtr& selected_origin_;
-    int position_;  // index in parent's children vector
+    // Index used to restore the joint to its original sibling order on undo.
+    int position_;
 };
 
+// Creates an empty optional name property.
 class CreateNameCommand : public Command {
    public:
     explicit CreateNameCommand(std::optional<std::string>& target);
@@ -145,6 +174,7 @@ class CreateNameCommand : public Command {
     std::optional<std::string>& target_;
 };
 
+// Creates an origin property and selects it for viewport editing.
 class CreateOriginCommand : public Command {
    public:
     explicit CreateOriginCommand(std::optional<urdf::Origin>& target,
@@ -157,6 +187,7 @@ class CreateOriginCommand : public Command {
     urdf::OriginRawPtr& selected_origin_;
 };
 
+// Creates an axis property with its URDF default value.
 class CreateAxisCommand : public Command {
    public:
     explicit CreateAxisCommand(std::optional<urdf::Axis>& target);
@@ -167,6 +198,7 @@ class CreateAxisCommand : public Command {
     std::optional<urdf::Axis>& target_;
 };
 
+// Creates a joint dynamics property with default damping and friction.
 class CreateDynamicsCommand : public Command {
    public:
     explicit CreateDynamicsCommand(std::optional<urdf::Dynamics>& target);
@@ -177,6 +209,7 @@ class CreateDynamicsCommand : public Command {
     std::optional<urdf::Dynamics>& target_;
 };
 
+// Creates a joint limit property with editable default bounds.
 class CreateLimitCommand : public Command {
    public:
     explicit CreateLimitCommand(std::optional<urdf::Limit>& target);
@@ -187,6 +220,7 @@ class CreateLimitCommand : public Command {
     std::optional<urdf::Limit>& target_;
 };
 
+// Creates a joint mimic property with the URDF default multiplier and offset.
 class CreateMimicCommand : public Command {
    public:
     explicit CreateMimicCommand(std::optional<urdf::Mimic>& target);
@@ -197,6 +231,7 @@ class CreateMimicCommand : public Command {
     std::optional<urdf::Mimic>& target_;
 };
 
+// Creates a joint calibration property.
 class CreateCalibrationCommand : public Command {
    public:
     explicit CreateCalibrationCommand(std::optional<urdf::Calibration>& target);
@@ -207,6 +242,7 @@ class CreateCalibrationCommand : public Command {
     std::optional<urdf::Calibration>& target_;
 };
 
+// Creates a joint safety-controller property.
 class CreateSafetyControllerCommand : public Command {
    public:
     explicit CreateSafetyControllerCommand(std::optional<urdf::SafetyController>& target);
@@ -217,6 +253,7 @@ class CreateSafetyControllerCommand : public Command {
     std::optional<urdf::SafetyController>& target_;
 };
 
+// Replaces a visual or collision geometry and regenerates its render model.
 class ChangeGeometryCommand : public Command {
    public:
     ChangeGeometryCommand(urdf::GeometryTypePtr old_geometry, urdf::GeometryTypePtr new_geometry,
@@ -232,6 +269,7 @@ class ChangeGeometryCommand : public Command {
     urdf::RobotPtr robot_;
 };
 
+// Adds an inertial block to a link and selects its origin for editing.
 class CreateInertialCommand : public Command {
    public:
     explicit CreateInertialCommand(urdf::LinkNodePtr& link, urdf::OriginRawPtr& selected_origin);
@@ -243,6 +281,7 @@ class CreateInertialCommand : public Command {
     urdf::OriginRawPtr& selected_origin_;
 };
 
+// Appends a visual element to a link and creates its render model.
 class CreateVisualCommand : public Command {
    public:
     CreateVisualCommand(urdf::LinkNodePtr& link, const urdf::RobotPtr& robot,
@@ -256,6 +295,7 @@ class CreateVisualCommand : public Command {
     const Shader shader_;
 };
 
+// Removes a visual element while retaining its data for undo.
 class DeleteVisualCommand : public Command {
    public:
     DeleteVisualCommand(urdf::LinkNodePtr& link, int i, urdf::RobotPtr& robot);
@@ -270,6 +310,7 @@ class DeleteVisualCommand : public Command {
     const urdf::RobotPtr robot_;
 };
 
+// Appends a collision element to a link.
 class AddCollisionCommand : public Command {
    public:
     explicit AddCollisionCommand(urdf::LinkNodePtr& link);
@@ -280,6 +321,7 @@ class AddCollisionCommand : public Command {
     urdf::LinkNodePtr link_;
 };
 
+// Removes a collision element while retaining its data for undo.
 class DeleteCollisionCommand : public Command {
    public:
     DeleteCollisionCommand(urdf::LinkNodePtr& link, int i);
@@ -292,6 +334,7 @@ class DeleteCollisionCommand : public Command {
     urdf::Collision old_collision_;
 };
 
+// Updates a box's dimensions and rebuilds its model.
 class UpdateGeometryBoxCommand : public Command {
    public:
     UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& box, const Vector3& old_size, Model& model,
@@ -307,6 +350,7 @@ class UpdateGeometryBoxCommand : public Command {
     const Shader& shader_;
 };
 
+// Updates a cylinder's radius and length and rebuilds its model.
 class UpdateGeometryCylinderCommand : public Command {
    public:
     UpdateGeometryCylinderCommand(std::shared_ptr<urdf::Cylinder>& cylinder, float old_radius,
@@ -324,6 +368,7 @@ class UpdateGeometryCylinderCommand : public Command {
     const Shader& shader_;
 };
 
+// Updates a sphere's radius and rebuilds its model.
 class UpdateGeometrySphereCommand : public Command {
    public:
     UpdateGeometrySphereCommand(std::shared_ptr<urdf::Sphere>& sphere, float old_radius,
@@ -339,6 +384,7 @@ class UpdateGeometrySphereCommand : public Command {
     const Shader& shader_;
 };
 
+// Adds a global material definition to the active robot.
 class AddMaterialCommand : public Command {
    public:
     AddMaterialCommand(urdf::RobotPtr& robot, urdf::Material material);
@@ -350,6 +396,7 @@ class AddMaterialCommand : public Command {
     urdf::Material material_;
 };
 
+// Removes a material definition and refreshes visuals that reference it.
 class DeleteMaterialCommand : public Command {
    public:
     DeleteMaterialCommand(urdf::RobotPtr& robot, const std::string& name);
@@ -362,6 +409,7 @@ class DeleteMaterialCommand : public Command {
     urdf::Material saved_material_;
 };
 
+// Renames a link and updates parent/child references in every joint.
 class RenameLinkCommand : public Command {
    public:
     RenameLinkCommand(urdf::RobotPtr& robot, urdf::LinkNodePtr link, const std::string& old_name,
@@ -378,6 +426,7 @@ class RenameLinkCommand : public Command {
     std::string new_name_;
 };
 
+// Renames a global material and updates visual references to it.
 class RenameMaterialCommand : public Command {
    public:
     RenameMaterialCommand(urdf::RobotPtr& robot, const std::string& old_name,
@@ -393,6 +442,7 @@ class RenameMaterialCommand : public Command {
     std::string new_name_;
 };
 
+// Clones a non-root link subtree and attaches the clone beside its source.
 class CloneSubtreeCommand : public Command {
    public:
     CloneSubtreeCommand(urdf::LinkNodePtr source, urdf::RobotPtr& robot, const Shader& shader);
@@ -407,6 +457,7 @@ class CloneSubtreeCommand : public Command {
     urdf::LinkNodePtr attach_parent_;
 };
 
+// Replaces a mesh file reference and reloads the render model.
 class UpdateGeometryMeshCommand : public Command {
    public:
     UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>& mesh, const std::string& new_filename,

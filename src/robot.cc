@@ -12,10 +12,10 @@
 #include <deque>
 #include <filesystem>
 #include <functional>
-#include <sstream>
 #include <loguru.hpp>
 #include <map>
 #include <set>
+#include <sstream>
 #include <utility>
 
 namespace urdf {
@@ -25,6 +25,8 @@ constexpr float kDefaultGeometrySize = 1.0F;
 constexpr int kMeshSubdivisions = 32;
 
 static inline Matrix MatMul(const Matrix& left, const Matrix& right) {
+    // raylib's MatrixMultiply arguments are reversed relative to the
+    // mathematical expression: MatrixMultiply(a, b) computes b * a.
     return MatrixMultiply(right, left);
 }
 
@@ -60,9 +62,11 @@ std::string resolveFilePath(const std::string& mesh_filename, const std::string&
     if (mesh_filename.rfind(package_prefix, 0) == 0) {
         std::string remainder = mesh_filename.substr(package_prefix.size());
         auto slash_pos = remainder.find('/');
-        std::string relative_path = (slash_pos != std::string::npos) ? remainder.substr(slash_pos + 1) : "";
+        std::string relative_path =
+            (slash_pos != std::string::npos) ? remainder.substr(slash_pos + 1) : "";
 
-        // Walk up from urdf_dir looking for package.xml
+        // The package name is not needed: package.xml identifies the package
+        // root, and the remainder is relative to that root.
         fs::path dir = urdf_dir;
         while (!dir.empty()) {
             if (fs::exists(dir / "package.xml")) {
@@ -287,18 +291,20 @@ static std::string deduplicateName(const std::string& base, const std::set<std::
 
 JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_parent,
                           const RobotPtr& robot) {
-    // Collect all existing names
+    // Names are global within a URDF, so reserve every existing name before
+    // cloning any nodes.
     std::set<std::string> link_names;
     std::set<std::string> joint_names;
     robot->forEveryLink([&](const LinkNodePtr& l) { link_names.insert(l->link.name); });
     robot->forEveryJoint([&](const JointNodePtr& j) { joint_names.insert(j->joint.name); });
 
-    // Recursive clone
+    // Clone the source joint's child link, then repeat for each descendant.
     std::function<JointNodePtr(const JointNodePtr&, const LinkNodePtr&)> recurse =
         [&](const JointNodePtr& src_joint, const LinkNodePtr& new_parent) -> JointNodePtr {
         const LinkNodePtr& src_link = src_joint->child;
 
-        // Clone link data
+        // Geometry uses shared pointers, so each visual and collision needs an
+        // independent geometry object instead of a shallow copy.
         Link new_link;
         std::string link_name = deduplicateName(src_link->link.name, link_names);
         link_names.insert(link_name);
@@ -318,7 +324,7 @@ JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_p
 
         auto new_link_node = std::make_shared<LinkNode>(std::move(new_link), nullptr);
 
-        // Clone joint data
+        // Rebuild the joint endpoints because the cloned link has a new name.
         std::string jname = deduplicateName(src_joint->joint.name, joint_names);
         joint_names.insert(jname);
         Joint new_joint(jname.c_str(), new_parent->link.name.c_str(),
@@ -336,7 +342,7 @@ JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_p
             std::make_shared<JointNode>(std::move(new_joint), new_parent, new_link_node);
         new_link_node->parent = new_joint_node;
 
-        // Recurse into children
+        // Attach recursively cloned descendants beneath the new link.
         for (const auto& child_joint : src_link->children) {
             auto cloned_child = recurse(child_joint, new_link_node);
             new_link_node->children.push_back(cloned_child);
@@ -345,8 +351,7 @@ JointNodePtr cloneSubtree(const LinkNodePtr& source, const LinkNodePtr& attach_p
         return new_joint_node;
     };
 
-    // The source link must have a parent joint — clone from that joint's perspective
-    // but attach to attach_parent
+    // A root link has no incoming joint, so only non-root subtrees are cloneable.
     if (!source->parent) return nullptr;
     return recurse(source->parent, attach_parent);
 }
@@ -369,7 +374,8 @@ RobotPtr buildRobot(const char* urdf_file) {
     tree_root->link = xmlNodeToLink(root_link, urdf_dir);
     tree_root->w_T_l = MatrixIdentity();
 
-    // Create all materials (global definitions first)
+    // Global definitions take precedence; inline definitions are promoted only
+    // when they introduce a material not already present in the global map.
     std::map<std::string, Material> materials;
     for (pugi::xml_node& mat : doc.child("robot").children("material")) {
         if (const auto m = xmlNodeToMaterial(mat)) {
@@ -377,7 +383,7 @@ RobotPtr buildRobot(const char* urdf_file) {
         }
     }
 
-    // Promote inline material definitions (materials defined inside <visual>) to the global map
+    // Promote visual-local definitions because the editor stores materials globally.
     for (const pugi::xml_node& link : doc.child("robot").children("link")) {
         for (const pugi::xml_node& vis : link.children("visual")) {
             const pugi::xml_node& mat_node = vis.child("material");
@@ -388,7 +394,8 @@ RobotPtr buildRobot(const char* urdf_file) {
             }
         }
     }
-    // Resolve texture paths relative to the URDF directory
+    // Keep resolved texture paths in memory while preserving original mesh
+    // filenames separately for URDF export.
     for (auto& [name, mat] : materials) {
         if (mat.texture_file) {
             mat.texture_file = resolveFilePath(*mat.texture_file, urdf_dir);
@@ -398,7 +405,7 @@ RobotPtr buildRobot(const char* urdf_file) {
     // TODO(ramon): every link uses the same shader, the material properties change the shader
     // color.
 
-    // Parse transmissions as opaque XML for round-trip preservation
+    // Preserve unsupported transmission data exactly enough to export it again.
     std::vector<std::string> transmissions;
     for (const pugi::xml_node& tx : doc.child("robot").children("transmission")) {
         std::ostringstream oss;
@@ -406,14 +413,14 @@ RobotPtr buildRobot(const char* urdf_file) {
         transmissions.push_back(oss.str());
     }
 
-    // Parent link to all child joints
+    // Index joints by parent before breadth-first tree construction.
     std::map<std::string, std::vector<Joint>> joint_p_hash;
     for (const pugi::xml_node& joint : doc.child("robot").children("joint")) {
         Joint j = xmlNodeToJoint(joint);
         joint_p_hash[j.parent].push_back(j);
     }
 
-    // Link name to link
+    // Index links by name so each indexed joint can attach its child quickly.
     std::map<std::string, Link> link_hash;
     for (const pugi::xml_node& link : doc.child("robot").children("link")) {
         Link l = xmlNodeToLink(link, urdf_dir);
@@ -536,10 +543,9 @@ Joint xmlNodeToJoint(const pugi::xml_node& xml_node) {
                                   dynamics_node.attribute("friction").as_float());
     }
     if (auto limit_node = xml_node.child("limit")) {
-        joint.limit = Limit(limit_node.attribute("lower").as_float(),
-                            limit_node.attribute("upper").as_float(),
-                            limit_node.attribute("effort").as_float(),
-                            limit_node.attribute("velocity").as_float());
+        joint.limit = Limit(
+            limit_node.attribute("lower").as_float(), limit_node.attribute("upper").as_float(),
+            limit_node.attribute("effort").as_float(), limit_node.attribute("velocity").as_float());
     }
     if (auto mimic_node = xml_node.child("mimic")) {
         Mimic m;
@@ -641,7 +647,7 @@ void exportRobot(const Robot& robot, std::string out_filename) {
 
     pugi::xml_node robot_root = out_doc.append_child("robot");
 
-    // save links
+    // Write links first so their serialized order is stable and independent of joints.
     std::deque<LinkNodePtr> deq{root_node};
     while (not deq.empty()) {
         const auto& current_link = deq.front();
@@ -655,7 +661,7 @@ void exportRobot(const Robot& robot, std::string out_filename) {
         }
     }
 
-    // save joints
+    // Write joints in a separate pass because they are children of links in memory.
     deq = std::deque<LinkNodePtr>{root_node};
     while (not deq.empty()) {
         const auto& current_link = deq.front();
@@ -669,13 +675,13 @@ void exportRobot(const Robot& robot, std::string out_filename) {
         }
     }
 
-    // save materials
+    // Materials are global URDF children rather than nested visual properties.
     for (const auto& mat : robot.getMaterials()) {
         pugi::xml_node mat_node = robot_root.append_child("material");
         materialToXmlNode(mat_node, mat.second);
     }
 
-    // save transmissions (opaque XML round-trip)
+    // Reparse preserved XML before copying it into this document's ownership.
     for (const auto& tx_xml : robot.getTransmissions()) {
         pugi::xml_document tx_doc;
         tx_doc.load_string(tx_xml.c_str());
@@ -904,26 +910,23 @@ Robot::~Robot() {
 
 void Robot::forwardKinematics() { forwardKinematics(root_); }
 
-// Recursively compute forward kinematics starting from the given link.
-// For each child joint, the world-frame transform of the child link is:
-//   w_T_child = w_T_parent * p_T_joint * j_T_child
-// where p_T_joint comes from the joint origin and j_T_child is identity
-// (no joint-to-child offset currently). Visual and collision transforms
-// are then composed on top: w_T_visual = w_T_child * c_T_visual.
+// Recursively computes forward kinematics from link.
+//
+// For each child joint, w_T_child = w_T_parent * p_T_joint * j_T_child,
+// where p_T_joint is the joint origin and j_T_child is the joint motion.
+// Visual and collision origins are then composed in the child-link frame.
 void Robot::forwardKinematics(LinkNodePtr& link) {
     auto update_link_models = [](const LinkNodePtr& node) {
         for (size_t i = 0; i < node->visual_models.size() && i < node->link.visual.size(); ++i) {
             const Matrix l_t_v = originToMatrix(node->link.visual[i].origin);
             const Matrix v_t_geometry = geometryLocalTransform(node->link.visual[i].geometry);
-            node->visual_models[i].transform =
-                MatMul(node->w_T_l, MatMul(l_t_v, v_t_geometry));
+            node->visual_models[i].transform = MatMul(node->w_T_l, MatMul(l_t_v, v_t_geometry));
         }
 
         for (size_t i = 0; i < node->collision_models.size() && i < node->link.collision.size();
              ++i) {
             const Matrix l_t_col = originToMatrix(node->link.collision[i].origin);
-            const Matrix col_t_geometry =
-                geometryLocalTransform(node->link.collision[i].geometry);
+            const Matrix col_t_geometry = geometryLocalTransform(node->link.collision[i].geometry);
             node->collision_models[i].transform =
                 MatMul(node->w_T_l, MatMul(l_t_col, col_t_geometry));
         }
@@ -938,8 +941,8 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
             const Matrix p_t_j = originToMatrix(joint_node->joint.origin);
             Matrix j_t_c = MatrixIdentity();
             if (joint_node->joint.isArticulated()) {
-                Vector3 ax = joint_node->joint.axis ? joint_node->joint.axis->xyz
-                                                    : Vector3{0, 0, 1};
+                Vector3 ax =
+                    joint_node->joint.axis ? joint_node->joint.axis->xyz : Vector3{0, 0, 1};
                 if (joint_node->joint.type == Joint::kPrismatic) {
                     Vector3 d = Vector3Scale(ax, joint_node->q);
                     j_t_c = MatrixTranslate(d.x, d.y, d.z);
@@ -949,6 +952,8 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
             }
             const Matrix w_t_c = MatMul(w_t_p, MatMul(p_t_j, j_t_c));
             joint_node->child->w_T_l = w_t_c;
+            // Model transforms include their origin in the link frame and, for
+            // meshes, the local scale specified by the URDF geometry.
             update_link_models(joint_node->child);
 
             recursion(joint_node->child);
@@ -966,7 +971,7 @@ void Robot::buildGeometry() {
     loadTextures();
 
     auto func = [&](const LinkNodePtr& link) {
-        // Visual models
+        // Visuals use the common shader and any referenced material.
         for (size_t i = 0; i < link->link.visual.size(); ++i) {
             Model model = link->link.visual[i].geometry.type->generateGeometry();
             model.materials[0].shader = visual_shader_;
@@ -974,7 +979,7 @@ void Robot::buildGeometry() {
         }
         updateMaterial(link);
 
-        // Collision models
+        // Collision models deliberately keep raylib's default material.
         for (const Collision& col : link->link.collision) {
             link->collision_models.push_back(col.geometry.type->generateGeometry());
         }
@@ -1129,7 +1134,7 @@ std::optional<HitResult> Robot::getLink(const Ray& ray) {
 std::vector<ValidationMessage> Robot::validate() const {
     std::vector<ValidationMessage> msgs;
 
-    // Collect link names and check for duplicates/empty
+    // Build name indexes once so later checks can detect duplicates and references.
     std::map<std::string, int> link_name_counts;
     forEveryLink([&](const LinkNodePtr& link) { link_name_counts[link->link.name]++; });
     for (const auto& [name, count] : link_name_counts) {
@@ -1142,7 +1147,7 @@ std::vector<ValidationMessage> Robot::validate() const {
         }
     }
 
-    // Collect joint names and check for duplicates/empty
+    // Joint names are also required to be unique for mimic references.
     std::map<std::string, int> joint_name_counts;
     forEveryJoint([&](const JointNodePtr& joint) { joint_name_counts[joint->joint.name]++; });
     for (const auto& [name, count] : joint_name_counts) {
@@ -1155,34 +1160,35 @@ std::vector<ValidationMessage> Robot::validate() const {
         }
     }
 
-    // Joint-level checks
+    // Check constraints that apply to individual joints.
     forEveryJoint([&](const JointNodePtr& jn) {
         const Joint& j = jn->joint;
 
-        // Revolute/prismatic require limit
+        // URDF requires a limit for revolute and prismatic joints.
         if ((j.type == Joint::kRevolute || j.type == Joint::kPrismatic) && !j.limit) {
-            msgs.push_back({ValidationMessage::kError,
-                            fmt::format("Joint '{}': revolute/prismatic requires <limit>", j.name)});
+            msgs.push_back(
+                {ValidationMessage::kError,
+                 fmt::format("Joint '{}': revolute/prismatic requires <limit>", j.name)});
         }
 
-        // Non-unit axis
+        // A non-unit axis changes the effective displacement or rotation scale.
         if (j.axis) {
             float len = Vector3Length(j.axis->xyz);
             if (std::abs(len - 1.0f) > 0.01f) {
-                msgs.push_back({ValidationMessage::kWarning,
-                                fmt::format("Joint '{}': axis vector not unit length ({:.3f})",
-                                            j.name, len)});
+                msgs.push_back(
+                    {ValidationMessage::kWarning,
+                     fmt::format("Joint '{}': axis vector not unit length ({:.3f})", j.name, len)});
             }
         }
 
-        // Limit lower >= upper
+        // Reversed bounds are legal XML but not a useful finite joint range.
         if (j.limit && j.limit->lower >= j.limit->upper) {
             msgs.push_back({ValidationMessage::kWarning,
                             fmt::format("Joint '{}': limit lower ({}) >= upper ({})", j.name,
                                         j.limit->lower, j.limit->upper)});
         }
 
-        // Mimic references non-existent joint
+        // Mimic targets must resolve to an existing joint name.
         if (j.mimic && joint_name_counts.count(j.mimic->joint) == 0) {
             msgs.push_back({ValidationMessage::kWarning,
                             fmt::format("Joint '{}': mimic references non-existent joint '{}'",
@@ -1190,15 +1196,15 @@ std::vector<ValidationMessage> Robot::validate() const {
         }
     });
 
-    // Link-level checks
+    // Check constraints that apply to links and their visual references.
     forEveryLink([&](const LinkNodePtr& ln) {
-        // Zero or negative mass
+        // Non-positive mass is physically invalid but remains exportable for repair.
         if (ln->link.inertial && ln->link.inertial->mass <= 0.0f) {
             msgs.push_back({ValidationMessage::kWarning,
                             fmt::format("Link '{}': zero or negative mass", ln->link.name)});
         }
 
-        // Visual references non-existent material
+        // The renderer uses a fallback color for an unresolved material reference.
         for (const auto& vis : ln->link.visual) {
             if (vis.material_name && materials_.count(*vis.material_name) == 0) {
                 msgs.push_back(
