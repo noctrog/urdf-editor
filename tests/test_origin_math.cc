@@ -68,3 +68,168 @@ TEST_CASE("RPY round-trip through matrix") {
         CHECK(recovered.z == doctest::Approx(rpy.z).epsilon(1e-4));
     }
 }
+
+TEST_CASE("URDF RPY uses fixed-axis roll pitch yaw") {
+    urdf::Origin o({0, 0, 0}, {PI / 2.0f, 0.0f, PI / 2.0f});
+    Matrix m = o.toMatrix();
+
+    Vector3 x_axis = Vector3Transform({1.0f, 0.0f, 0.0f}, m);
+    Vector3 y_axis = Vector3Transform({0.0f, 1.0f, 0.0f}, m);
+    Vector3 z_axis = Vector3Transform({0.0f, 0.0f, 1.0f}, m);
+
+    CHECK(x_axis.x == doctest::Approx(0.0f).epsilon(1e-5));
+    CHECK(x_axis.y == doctest::Approx(1.0f).epsilon(1e-5));
+    CHECK(x_axis.z == doctest::Approx(0.0f).epsilon(1e-5));
+
+    CHECK(y_axis.x == doctest::Approx(0.0f).epsilon(1e-5));
+    CHECK(y_axis.y == doctest::Approx(0.0f).epsilon(1e-5));
+    CHECK(y_axis.z == doctest::Approx(1.0f).epsilon(1e-5));
+
+    CHECK(z_axis.x == doctest::Approx(1.0f).epsilon(1e-5));
+    CHECK(z_axis.y == doctest::Approx(0.0f).epsilon(1e-5));
+    CHECK(z_axis.z == doctest::Approx(0.0f).epsilon(1e-5));
+}
+
+TEST_CASE("Forward kinematics updates root visual transform") {
+    auto root = std::make_shared<urdf::LinkNode>(urdf::Link("root"), nullptr);
+    root->w_T_l = MatrixTranslate(1.0f, 2.0f, 3.0f);
+
+    urdf::Visual visual;
+    visual.origin = urdf::Origin(Vector3{0.25f, 0.5f, 0.75f}, Vector3{0.0f, 0.0f, 0.0f});
+    root->link.visual.push_back(visual);
+    root->visual_models.push_back(Model{});
+
+    urdf::Robot::forwardKinematics(root);
+
+    CHECK(root->visual_models[0].transform.m12 == doctest::Approx(1.25f));
+    CHECK(root->visual_models[0].transform.m13 == doctest::Approx(2.5f));
+    CHECK(root->visual_models[0].transform.m14 == doctest::Approx(3.75f));
+}
+
+TEST_CASE("Forward kinematics preserves root mesh scale") {
+    auto root = std::make_shared<urdf::LinkNode>(urdf::Link("root"), nullptr);
+    root->w_T_l = MatrixTranslate(1.0f, 2.0f, 3.0f);
+
+    urdf::Visual visual;
+    visual.origin = urdf::Origin(Vector3{0.25f, 0.5f, 0.75f}, Vector3{0.0f, 0.0f, PI / 2.0f});
+    visual.geometry.type =
+        std::make_shared<urdf::Mesh>("visual.stl", "", Vector3{2.0f, 3.0f, 4.0f});
+    root->link.visual.push_back(visual);
+    root->visual_models.push_back(Model{});
+
+    urdf::Collision collision;
+    collision.origin =
+        urdf::Origin(Vector3{-0.25f, -0.5f, -0.75f}, Vector3{0.0f, PI / 2.0f, 0.0f});
+    collision.geometry.type =
+        std::make_shared<urdf::Mesh>("collision.stl", "", Vector3{5.0f, 6.0f, 7.0f});
+    root->link.collision.push_back(collision);
+    root->collision_models.push_back(Model{});
+
+    // Repeated updates must rebuild the model transforms without accumulating scale.
+    urdf::Robot::forwardKinematics(root);
+    urdf::Robot::forwardKinematics(root);
+
+    const Matrix& visual_transform = root->visual_models[0].transform;
+    CHECK(Vector3Length({visual_transform.m0, visual_transform.m1, visual_transform.m2}) ==
+          doctest::Approx(2.0f));
+    CHECK(Vector3Length({visual_transform.m4, visual_transform.m5, visual_transform.m6}) ==
+          doctest::Approx(3.0f));
+    CHECK(Vector3Length({visual_transform.m8, visual_transform.m9, visual_transform.m10}) ==
+          doctest::Approx(4.0f));
+    CHECK(visual_transform.m12 == doctest::Approx(1.25f));
+    CHECK(visual_transform.m13 == doctest::Approx(2.5f));
+    CHECK(visual_transform.m14 == doctest::Approx(3.75f));
+
+    const Matrix& collision_transform = root->collision_models[0].transform;
+    CHECK(Vector3Length({collision_transform.m0, collision_transform.m1, collision_transform.m2}) ==
+          doctest::Approx(5.0f));
+    CHECK(Vector3Length({collision_transform.m4, collision_transform.m5, collision_transform.m6}) ==
+          doctest::Approx(6.0f));
+    CHECK(Vector3Length(
+              {collision_transform.m8, collision_transform.m9, collision_transform.m10}) ==
+          doctest::Approx(7.0f));
+    CHECK(collision_transform.m12 == doctest::Approx(0.75f));
+    CHECK(collision_transform.m13 == doctest::Approx(1.5f));
+    CHECK(collision_transform.m14 == doctest::Approx(2.25f));
+}
+
+TEST_CASE("Forward kinematics keeps Diablo wheel assemblies on correct sides") {
+    auto root = std::make_shared<urdf::LinkNode>(urdf::Link("base_link"), nullptr);
+
+    auto left_motor = std::make_shared<urdf::LinkNode>(urdf::Link("left_motor"), nullptr);
+    auto left_j4 = std::make_shared<urdf::JointNode>(
+        urdf::Joint("left_j4", "base_link", "left_motor", "continuous"), root, left_motor);
+    left_j4->joint.origin = urdf::Origin(Vector3{0.0f, 0.18755f, 0.0f},
+                                         Vector3{1.5708f, 0.13433f, -3.1416f});
+    left_motor->parent = left_j4;
+    root->children.push_back(left_j4);
+
+    auto left_leg1 = std::make_shared<urdf::LinkNode>(urdf::Link("left_leg1"), nullptr);
+    auto left_j1 = std::make_shared<urdf::JointNode>(
+        urdf::Joint("left_j1", "left_motor", "left_leg1", "continuous"), left_motor, left_leg1);
+    left_j1->joint.origin =
+        urdf::Origin(Vector3{0.0f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, -2.8729f});
+    left_leg1->parent = left_j1;
+    left_motor->children.push_back(left_j1);
+
+    auto left_leg2 = std::make_shared<urdf::LinkNode>(urdf::Link("left_leg2"), nullptr);
+    auto left_j2 = std::make_shared<urdf::JointNode>(
+        urdf::Joint("left_j2", "left_leg1", "left_leg2", "continuous"), left_leg1, left_leg2);
+    left_j2->joint.origin =
+        urdf::Origin(Vector3{0.14f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, 2.8729f});
+    left_leg2->parent = left_j2;
+    left_leg1->children.push_back(left_j2);
+
+    auto left_wheel = std::make_shared<urdf::LinkNode>(urdf::Link("left_wheel"), nullptr);
+    auto left_j3 = std::make_shared<urdf::JointNode>(
+        urdf::Joint("left_j3", "left_leg2", "left_wheel", "continuous"), left_leg2, left_wheel);
+    left_j3->joint.origin =
+        urdf::Origin(Vector3{0.14f, 0.0f, 0.0537f}, Vector3{0.0f, 0.0f, 0.13433f});
+    left_wheel->parent = left_j3;
+    left_leg2->children.push_back(left_j3);
+
+    auto right_motor = std::make_shared<urdf::LinkNode>(urdf::Link("right_motor"), nullptr);
+    auto right_j4 = std::make_shared<urdf::JointNode>(
+        urdf::Joint("right_j4", "base_link", "right_motor", "continuous"), root, right_motor);
+    right_j4->joint.origin = urdf::Origin(Vector3{0.0f, -0.18755f, 0.0f},
+                                          Vector3{1.5708f, 0.13433f, 3.1416f});
+    right_motor->parent = right_j4;
+    root->children.push_back(right_j4);
+
+    auto right_leg1 = std::make_shared<urdf::LinkNode>(urdf::Link("right_leg1"), nullptr);
+    auto right_j1 = std::make_shared<urdf::JointNode>(
+        urdf::Joint("right_j1", "right_motor", "right_leg1", "continuous"), right_motor,
+        right_leg1);
+    right_j1->joint.origin =
+        urdf::Origin(Vector3{0.0f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, -2.8729f});
+    right_leg1->parent = right_j1;
+    right_motor->children.push_back(right_j1);
+
+    auto right_leg2 = std::make_shared<urdf::LinkNode>(urdf::Link("right_leg2"), nullptr);
+    auto right_j2 = std::make_shared<urdf::JointNode>(
+        urdf::Joint("right_j2", "right_leg1", "right_leg2", "continuous"), right_leg1,
+        right_leg2);
+    right_j2->joint.origin =
+        urdf::Origin(Vector3{0.14f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, 2.8729f});
+    right_leg2->parent = right_j2;
+    right_leg1->children.push_back(right_j2);
+
+    auto right_wheel = std::make_shared<urdf::LinkNode>(urdf::Link("right_wheel"), nullptr);
+    auto right_j3 = std::make_shared<urdf::JointNode>(
+        urdf::Joint("right_j3", "right_leg2", "right_wheel", "continuous"), right_leg2,
+        right_wheel);
+    right_j3->joint.origin =
+        urdf::Origin(Vector3{0.14f, 0.0f, -0.0537f}, Vector3{0.0f, 0.0f, -3.0073f});
+    right_wheel->parent = right_j3;
+    right_leg2->children.push_back(right_j3);
+
+    urdf::Robot::forwardKinematics(root);
+
+    CHECK(left_wheel->w_T_l.m12 == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(left_wheel->w_T_l.m13 == doctest::Approx(0.2412f).epsilon(1e-4));
+    CHECK(left_wheel->w_T_l.m14 == doctest::Approx(-0.0375f).epsilon(1e-4));
+
+    CHECK(right_wheel->w_T_l.m12 == doctest::Approx(0.0f).epsilon(1e-4));
+    CHECK(right_wheel->w_T_l.m13 == doctest::Approx(-0.2412f).epsilon(1e-4));
+    CHECK(right_wheel->w_T_l.m14 == doctest::Approx(-0.0375f).epsilon(1e-4));
+}

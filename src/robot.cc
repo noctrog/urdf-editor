@@ -28,6 +28,13 @@ static inline Matrix MatMul(const Matrix& left, const Matrix& right) {
     return MatrixMultiply(right, left);
 }
 
+static Matrix geometryLocalTransform(const Geometry& geometry) {
+    const auto mesh = std::dynamic_pointer_cast<Mesh>(geometry.type);
+    if (!mesh) return MatrixIdentity();
+
+    return MatrixScale(mesh->scale.x, mesh->scale.y, mesh->scale.z);
+}
+
 static void storeFloat(const char* s, float& f) {
     std::stringstream iss(s);
     iss >> f;
@@ -100,7 +107,7 @@ Origin::Origin(const char* xyz_s, const char* rpy_s) {
 Origin::Origin(const Vector3& xyz, const Vector3& rpy) : xyz(xyz), rpy(rpy) {}
 
 Matrix Origin::toMatrix() const {
-    Matrix rot_mat{MatrixRotateXYZ(rpy)};
+    Matrix rot_mat{MatrixRotateZYX(rpy)};
     Matrix pos_mat{MatrixTranslate(xyz.x, xyz.y, xyz.z)};
     return MatrixMultiply(rot_mat, pos_mat);
 }
@@ -904,6 +911,26 @@ void Robot::forwardKinematics() { forwardKinematics(root_); }
 // (no joint-to-child offset currently). Visual and collision transforms
 // are then composed on top: w_T_visual = w_T_child * c_T_visual.
 void Robot::forwardKinematics(LinkNodePtr& link) {
+    auto update_link_models = [](const LinkNodePtr& node) {
+        for (size_t i = 0; i < node->visual_models.size() && i < node->link.visual.size(); ++i) {
+            const Matrix l_t_v = originToMatrix(node->link.visual[i].origin);
+            const Matrix v_t_geometry = geometryLocalTransform(node->link.visual[i].geometry);
+            node->visual_models[i].transform =
+                MatMul(node->w_T_l, MatMul(l_t_v, v_t_geometry));
+        }
+
+        for (size_t i = 0; i < node->collision_models.size() && i < node->link.collision.size();
+             ++i) {
+            const Matrix l_t_col = originToMatrix(node->link.collision[i].origin);
+            const Matrix col_t_geometry =
+                geometryLocalTransform(node->link.collision[i].geometry);
+            node->collision_models[i].transform =
+                MatMul(node->w_T_l, MatMul(l_t_col, col_t_geometry));
+        }
+    };
+
+    update_link_models(link);
+
     std::function<void(LinkNodePtr&)> recursion = [&](LinkNodePtr& node) {
         const Matrix& w_t_p = node->w_T_l;
 
@@ -922,21 +949,7 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
             }
             const Matrix w_t_c = MatMul(w_t_p, MatMul(p_t_j, j_t_c));
             joint_node->child->w_T_l = w_t_c;
-
-            // Update visual transforms
-            for (size_t i = 0; i < joint_node->child->visual_models.size(); ++i) {
-                auto& vis_origin = joint_node->child->link.visual[i].origin;
-                const Matrix c_t_v = originToMatrix(vis_origin);
-                const Matrix w_t_v = MatMul(w_t_c, c_t_v);
-                joint_node->child->visual_models[i].transform = w_t_v;
-            }
-
-            // Update collision transforms
-            for (size_t i = 0; i < joint_node->child->collision_models.size(); ++i) {
-                const Matrix c_t_col = originToMatrix(joint_node->child->link.collision[i].origin);
-                const Matrix w_t_col = MatMul(w_t_c, c_t_col);
-                joint_node->child->collision_models[i].transform = w_t_col;
-            }
+            update_link_models(joint_node->child);
 
             recursion(joint_node->child);
         }
@@ -945,7 +958,7 @@ void Robot::forwardKinematics(LinkNodePtr& link) {
     recursion(link);
 }
 
-Matrix Robot::originToMatrix(std::optional<Origin>& origin) {
+Matrix Robot::originToMatrix(const std::optional<Origin>& origin) {
     return origin ? origin->toMatrix() : MatrixIdentity();
 }
 

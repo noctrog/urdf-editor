@@ -13,15 +13,15 @@
 
 namespace urdf {
 
-// Extract XYZ intrinsic Euler angles (roll-pitch-yaw) from a rotation matrix.
-// Uses the convention: R = Rx(roll) * Ry(pitch) * Rz(yaw).
+// Extract URDF fixed-axis roll-pitch-yaw from a rotation matrix.
+// Uses the convention: R = Rz(yaw) * Ry(pitch) * Rx(roll).
 // Assumes no gimbal lock (pitch != +/-90 degrees).
 inline Vector3 MatrixToXYZ(const Matrix& m) {
     Vector3 xyz{Vector3Zero()};
 
-    xyz.x = std::atan2(-m.m9, m.m10);
-    xyz.y = std::atan2(m.m8, std::sqrt(m.m0 * m.m0 + m.m4 * m.m4));
-    xyz.z = std::atan2(-m.m4, m.m0);
+    xyz.x = std::atan2(m.m6, m.m10);
+    xyz.y = std::atan2(-m.m2, std::sqrt(m.m0 * m.m0 + m.m1 * m.m1));
+    xyz.z = std::atan2(m.m1, m.m0);
 
     return xyz;
 }
@@ -307,7 +307,7 @@ class Robot {
 
    private:
     void loadTextureForMaterial(const std::string& name, const Material& mat);
-    static Matrix originToMatrix(std::optional<Origin>& origin);
+    static Matrix originToMatrix(const std::optional<Origin>& origin);
 
     LinkNodePtr root_;
 
