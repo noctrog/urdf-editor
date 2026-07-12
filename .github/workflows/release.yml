@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset_name }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            asset_name: urdf-editor-linux-x86_64
+          - runner: ubuntu-24.04-arm
+            asset_name: urdf-editor-linux-aarch64
+          - runner: macos-15-intel
+            asset_name: urdf-editor-macos-x86_64
+          - runner: macos-14
+            asset_name: urdf-editor-macos-arm64
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Install Linux build dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential \
+            cmake \
+            pkg-config \
+            libgl1-mesa-dev \
+            libgtk-3-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libxrandr-dev
+
+      - name: Configure release build
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=OFF
+          -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Package binary
+        shell: bash
+        run: |
+          package_dir="dist/${{ matrix.asset_name }}"
+          mkdir -p "$package_dir"
+          cp build/urdf-editor "$package_dir/"
+          cp LICENSE README.md "$package_dir/"
+          tar -C dist -czf "dist/${{ matrix.asset_name }}.tar.gz" "${{ matrix.asset_name }}"
+
+      - name: Upload binary package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: dist/${{ matrix.asset_name }}.tar.gz
+          if-no-files-found: error
+
+  publish-release:
+    name: Publish GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download binary packages
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          gh release create "$GITHUB_REF_NAME" release-assets/*.tar.gz
+          --verify-tag
+          --generate-notes
