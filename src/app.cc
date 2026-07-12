@@ -1,4 +1,5 @@
 #include <app.h>
+#include <embedded_shaders.h>
 #include <fmt/format.h>
 #include <glad.h>
 #include <imgui.h>
@@ -190,7 +191,8 @@ void App::setup() {
     SetConfigFlags(FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE | FLAG_WINDOW_HIGHDPI);
     InitWindow(kDefaultScreenWidth, kDefaultScreenHeight, "URDF Editor");
 
-    shader_ = LoadShader("./resources/shaders/lighting.vs", "./resources/shaders/lighting.fs");
+    shader_ = LoadShaderFromMemory(embedded_shaders::kLightingVertex,
+                                   embedded_shaders::kLightingFragment);
     shader_.locs[SHADER_LOC_VECTOR_VIEW] = GetShaderLocation(shader_, "viewPos");
     shader_.locs[SHADER_LOC_COLOR_DIFFUSE] = GetShaderLocation(shader_, "colDiffuse");
     shader_.locs[SHADER_LOC_COLOR_AMBIENT] = GetShaderLocation(shader_, "ambient");
@@ -211,7 +213,7 @@ void App::setup() {
     bWindowShouldClose_ = false;
 
     outline_shader_ =
-        LoadShader("./resources/shaders/outline.vs", "./resources/shaders/outline.fs");
+        LoadShaderFromMemory(embedded_shaders::kOutlineVertex, embedded_shaders::kOutlineFragment);
     outline_loc_width_ = GetShaderLocation(outline_shader_, "outlineWidth");
     outline_loc_viewport_ = GetShaderLocation(outline_shader_, "viewportSize");
     outline_loc_color_ = GetShaderLocation(outline_shader_, "outlineColor");
