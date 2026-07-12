@@ -1,12 +1,11 @@
 #include <doctest/doctest.h>
-#include <pugixml.hpp>
 #include <robot.h>
 
+#include <pugixml.hpp>
 #include <sstream>
 
 // Helper: build a minimal Robot with one root link and set transmissions.
-static urdf::RobotPtr buildRobotWithTransmissions(
-    const std::vector<std::string>& transmissions) {
+static urdf::RobotPtr buildRobotWithTransmissions(const std::vector<std::string>& transmissions) {
     auto root = std::make_shared<urdf::LinkNode>(urdf::Link("base_link"), nullptr);
     auto robot = std::make_shared<urdf::Robot>(root);
     robot->setTransmissions(transmissions);
@@ -40,16 +39,17 @@ TEST_CASE("Transmission storage: set and get") {
 }
 
 TEST_CASE("Transmission export round-trip: single transmission") {
-    std::string tx_xml = "<transmission name=\"trans1\">\n"
-                         "\t<type>transmission_interface/SimpleTransmission</type>\n"
-                         "\t<joint name=\"joint1\">\n"
-                         "\t\t<hardwareInterface>hardware_interface/EffortJointInterface"
-                         "</hardwareInterface>\n"
-                         "\t</joint>\n"
-                         "\t<actuator name=\"motor1\">\n"
-                         "\t\t<mechanicalReduction>50</mechanicalReduction>\n"
-                         "\t</actuator>\n"
-                         "</transmission>\n";
+    std::string tx_xml =
+        "<transmission name=\"trans1\">\n"
+        "\t<type>transmission_interface/SimpleTransmission</type>\n"
+        "\t<joint name=\"joint1\">\n"
+        "\t\t<hardwareInterface>hardware_interface/EffortJointInterface"
+        "</hardwareInterface>\n"
+        "\t</joint>\n"
+        "\t<actuator name=\"motor1\">\n"
+        "\t\t<mechanicalReduction>50</mechanicalReduction>\n"
+        "\t</actuator>\n"
+        "</transmission>\n";
 
     auto robot = buildRobotWithTransmissions({tx_xml});
 

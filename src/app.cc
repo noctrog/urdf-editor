@@ -15,10 +15,10 @@
 #include <array>
 #include <cctype>
 #include <functional>
-#include <set>
 #include <loguru.hpp>
 #include <nfd.hpp>
 #include <pugixml.hpp>
+#include <set>
 
 // Camera control speeds
 constexpr float kCameraRotSpeed = 0.003F;
@@ -65,13 +65,13 @@ const Vector3 kUrdfDefaultAxis = {1.0F, 0.0F, 0.0F};
 
 // Platform-aware modifier label for menu shortcuts
 #ifdef __APPLE__
-constexpr const char* kModName = "Cmd";
+constexpr const char *kModName = "Cmd";
 #else
-constexpr const char* kModName = "Ctrl";
+constexpr const char *kModName = "Ctrl";
 #endif
 
 // Render a single validation message with appropriate color (red for errors, yellow for warnings).
-static void drawValidationMessage(const urdf::ValidationMessage& msg) {
+static void drawValidationMessage(const urdf::ValidationMessage &msg) {
     if (msg.level == urdf::ValidationMessage::kError) {
         ImGui::TextColored(ImVec4(1, 0.2f, 0.2f, 1), "Error: %s", msg.message.c_str());
     } else {
@@ -126,7 +126,7 @@ static void cameraOrbit(Camera3D *camera, float dx, float dy) {
 }
 
 // Compute the center of the combined bounding box of all meshes in a model.
-static Vector3 getModelBoundingBoxCenter(const Model& model) {
+static Vector3 getModelBoundingBoxCenter(const Model &model) {
     BoundingBox bbox = GetMeshBoundingBox(model.meshes[0]);
     for (int i = 1; i < model.meshCount; i++) {
         BoundingBox mb = GetMeshBoundingBox(model.meshes[i]);
@@ -137,8 +137,7 @@ static Vector3 getModelBoundingBoxCenter(const Model& model) {
         if (mb.max.y > bbox.max.y) bbox.max.y = mb.max.y;
         if (mb.max.z > bbox.max.z) bbox.max.z = mb.max.z;
     }
-    return {(bbox.min.x + bbox.max.x) * 0.5F,
-            (bbox.min.y + bbox.max.y) * 0.5F,
+    return {(bbox.min.x + bbox.max.x) * 0.5F, (bbox.min.y + bbox.max.y) * 0.5F,
             (bbox.min.z + bbox.max.z) * 0.5F};
 }
 
@@ -150,11 +149,9 @@ static void updateCamera(Camera3D *camera) {
     if (is_mmb_down) {
         Vector2 mouse_delta = GetMouseDelta();
         if (is_shift_down) {
-            cameraPan(camera, -kCameraMoveSpeed * mouse_delta.x,
-                      -kCameraMoveSpeed * mouse_delta.y);
+            cameraPan(camera, -kCameraMoveSpeed * mouse_delta.x, -kCameraMoveSpeed * mouse_delta.y);
         } else {
-            cameraOrbit(camera, -kCameraRotSpeed * mouse_delta.x,
-                        -kCameraRotSpeed * mouse_delta.y);
+            cameraOrbit(camera, -kCameraRotSpeed * mouse_delta.x, -kCameraRotSpeed * mouse_delta.y);
         }
     }
 
@@ -256,13 +253,13 @@ void App::update() {
             } else if (hit->type == urdf::HitResult::kVisual) {
                 selected_node_ = hit->link;
                 pending_tab_ = hit->index;
-                auto& origin = hit->link->link.visual[hit->index].origin;
+                auto &origin = hit->link->link.visual[hit->index].origin;
                 selected_link_origin_ = origin ? &*origin : nullptr;
             } else {
                 selected_node_ = hit->link;
                 int num_visuals = static_cast<int>(hit->link->link.visual.size());
                 pending_tab_ = num_visuals + hit->index;
-                auto& origin = hit->link->link.collision[hit->index].origin;
+                auto &origin = hit->link->link.collision[hit->index].origin;
                 selected_link_origin_ = origin ? &*origin : nullptr;
             }
         }
@@ -281,17 +278,15 @@ void App::drawViewport() {
         ImGuiCond_Always);
 
     ImGui::Begin("##Viewport", nullptr,
-                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar |
-                     ImGuiWindowFlags_NoScrollWithMouse |
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse |
                      ImGuiWindowFlags_NoBringToFrontOnFocus);
 
     int vp_w = GetScreenWidth() - static_cast<int>(kSidePanelWidth);
     int vp_h = GetScreenHeight() - menubar_height_;
-    rlImGuiImageRect(
-        &scene_texture_.texture, vp_w, vp_h,
-        {0, 0, static_cast<float>(scene_texture_.texture.width),
-         -static_cast<float>(scene_texture_.texture.height)});
+    rlImGuiImageRect(&scene_texture_.texture, vp_w, vp_h,
+                     {0, 0, static_cast<float>(scene_texture_.texture.width),
+                      -static_cast<float>(scene_texture_.texture.height)});
     viewport_hovered_ = ImGui::IsWindowHovered();
 
     ImGui::End();
@@ -314,7 +309,7 @@ void App::drawMenu() {
     }
     if (ImGui::BeginPopupModal("Validation", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         bool has_errors = false;
-        for (const auto& msg : validation_results_) {
+        for (const auto &msg : validation_results_) {
             if (msg.level == urdf::ValidationMessage::kError) has_errors = true;
             drawValidationMessage(msg);
         }
@@ -363,8 +358,7 @@ void App::drawMenu() {
     rlImGuiEnd();
 }
 
-void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
-                               Rectangle viewport) {
+void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode> &link, Rectangle viewport) {
     if (link->visual_models.empty()) return;
 
     rlDrawRenderBatchActive();
@@ -379,7 +373,7 @@ void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
     glDepthMask(GL_FALSE);
 
     rlDrawRenderBatchActive();
-    for (const Model& vm : link->visual_models) {
+    for (const Model &vm : link->visual_models) {
         DrawModel(vm, Vector3Zero(), 1.0F, WHITE);
     }
     rlDrawRenderBatchActive();
@@ -389,7 +383,7 @@ void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
     glStencilMask(0x00);
     glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
-    for (Model& vm : link->visual_models) {
+    for (Model &vm : link->visual_models) {
         if (vm.meshCount <= 0) continue;
 
         // Set outline shader uniforms (locations cached at load time)
@@ -424,11 +418,11 @@ void App::drawSelectionOutline(const std::shared_ptr<urdf::LinkNode>& link,
     rlDrawRenderBatchActive();
 }
 
-void App::drawJointAxis(const urdf::JointNodePtr& joint) {
+void App::drawJointAxis(const urdf::JointNodePtr &joint) {
     if (!joint->joint.isArticulated()) return;
 
     // Compute world-space joint transform: w_T_j = w_T_p * p_T_j
-    const Matrix& w_t_p = joint->parent->w_T_l;
+    const Matrix &w_t_p = joint->parent->w_T_l;
     Matrix p_t_j = joint->joint.origin ? joint->joint.origin->toMatrix() : MatrixIdentity();
     Matrix w_t_j = MatrixMultiply(p_t_j, w_t_p);
 
@@ -643,10 +637,10 @@ void App::recreateSceneTexture(int width, int height) {
 
         rlFramebufferAttach(scene_texture_.id, scene_texture_.texture.id,
                             RL_ATTACHMENT_COLOR_CHANNEL0, RL_ATTACHMENT_TEXTURE2D, 0);
-        rlFramebufferAttach(scene_texture_.id, depth_stencil_rbo_,
-                            RL_ATTACHMENT_DEPTH, RL_ATTACHMENT_RENDERBUFFER, 0);
-        rlFramebufferAttach(scene_texture_.id, depth_stencil_rbo_,
-                            RL_ATTACHMENT_STENCIL, RL_ATTACHMENT_RENDERBUFFER, 0);
+        rlFramebufferAttach(scene_texture_.id, depth_stencil_rbo_, RL_ATTACHMENT_DEPTH,
+                            RL_ATTACHMENT_RENDERBUFFER, 0);
+        rlFramebufferAttach(scene_texture_.id, depth_stencil_rbo_, RL_ATTACHMENT_STENCIL,
+                            RL_ATTACHMENT_RENDERBUFFER, 0);
 
         scene_texture_.depth.id = depth_stencil_rbo_;
         scene_texture_.depth.width = width;
@@ -736,7 +730,7 @@ void App::saveFile() {
 }
 
 void App::handleShortcuts() {
-    ImGuiIO& io = ImGui::GetIO();
+    ImGuiIO &io = ImGui::GetIO();
     if (io.WantTextInput) return;
 
     if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_Z)) {
@@ -749,7 +743,10 @@ void App::handleShortcuts() {
         command_buffer_.redo();
     }
     if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_O)) {
-        guardUnsavedChanges([this]() { command_buffer_.reset(); openFile(); });
+        guardUnsavedChanges([this]() {
+            command_buffer_.reset();
+            openFile();
+        });
     }
     if (ImGui::IsKeyChordPressed(ImGuiMod_Shortcut | ImGuiKey_S)) {
         if (robot_) saveFile();
@@ -774,8 +771,8 @@ void App::handleShortcuts() {
 
 void App::deleteSelectedJoint() {
     if (auto joint_node = std::dynamic_pointer_cast<urdf::JointNode>(selected_node_)) {
-        command_buffer_.add(std::make_shared<DeleteJointCommand>(
-            joint_node, robot_, selected_node_, selected_link_origin_));
+        command_buffer_.add(std::make_shared<DeleteJointCommand>(joint_node, robot_, selected_node_,
+                                                                 selected_link_origin_));
     } else if (auto link_node = std::dynamic_pointer_cast<urdf::LinkNode>(selected_node_)) {
         if (link_node->parent) {
             command_buffer_.add(std::make_shared<DeleteJointCommand>(
@@ -788,7 +785,10 @@ void App::drawToolbar() {
     if (ImGui::BeginMainMenuBar()) {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("Open", fmt::format("{}+O", kModName).c_str())) {
-                guardUnsavedChanges([this]() { command_buffer_.reset(); openFile(); });
+                guardUnsavedChanges([this]() {
+                    command_buffer_.reset();
+                    openFile();
+                });
             }
 
             if (ImGui::MenuItem("Save", fmt::format("{}+S", kModName).c_str(), false,
@@ -844,7 +844,7 @@ void App::drawToolbar() {
             ImGui::MenuItem("Show Collisions", nullptr, &bShowCollisions_);
             ImGui::Separator();
             if (ImGui::MenuItem("Reset All Joints", nullptr, false, robot_ != nullptr)) {
-                robot_->forEveryJoint([](const urdf::JointNodePtr& j) { j->q = 0.0f; });
+                robot_->forEveryJoint([](const urdf::JointNodePtr &j) { j->q = 0.0f; });
                 robot_->forwardKinematics();
             }
             ImGui::Separator();
@@ -882,7 +882,8 @@ void App::drawRobotTree() {
             bool self_match = toLower(link->link.name).find(filter_lower) != std::string::npos;
             bool child_match = false;
             for (const auto &joint : link->children) {
-                bool joint_match = toLower(joint->joint.name).find(filter_lower) != std::string::npos;
+                bool joint_match =
+                    toLower(joint->joint.name).find(filter_lower) != std::string::npos;
                 bool subtree_match = mark(joint->child);
                 if (joint_match || subtree_match) {
                     visible.insert(joint.get());
@@ -985,9 +986,8 @@ void App::drawRobotTree() {
                         ImGui::TableNextColumn();
 
                         ImGuiTreeNodeFlags joint_flags =
-                            tree_flags | (joint.get() == selected_node_.get()
-                                              ? ImGuiTreeNodeFlags_Selected
-                                              : 0);
+                            tree_flags |
+                            (joint.get() == selected_node_.get() ? ImGuiTreeNodeFlags_Selected : 0);
                         if (filtering) {
                             ImGui::SetNextItemOpen(true);
                         }
@@ -1076,15 +1076,14 @@ void App::menuPropertiesInertial(urdf::LinkNodePtr link_node) {
         inputFloatUndoable("Mass", inertial->mass);
 
         bool has_collision = !link_node->link.collision.empty();
-        bool is_primitive = has_collision &&
-            !std::dynamic_pointer_cast<urdf::Mesh>(
-                link_node->link.collision[0].geometry.type);
+        bool is_primitive = has_collision && !std::dynamic_pointer_cast<urdf::Mesh>(
+                                                 link_node->link.collision[0].geometry.type);
         bool can_compute = is_primitive && inertial->mass > 0.0f;
 
         if (!can_compute) ImGui::BeginDisabled();
         if (ImGui::Button("Compute from collision")) {
-            urdf::Inertia new_inertia = urdf::computeInertia(
-                inertial->mass, link_node->link.collision[0].geometry.type);
+            urdf::Inertia new_inertia =
+                urdf::computeInertia(inertial->mass, link_node->link.collision[0].geometry.type);
             command_buffer_.add(std::make_shared<UpdatePropertyCommand<urdf::Inertia>>(
                 inertial->inertia, inertial->inertia, new_inertia));
         }
@@ -1141,7 +1140,7 @@ void App::drawNodeProperties() {
             std::string new_name(link_name_buf);
             if (!new_name.empty() && new_name != link_node->link.name) {
                 bool duplicate = false;
-                robot_->forEveryLink([&](const urdf::LinkNodePtr& l) {
+                robot_->forEveryLink([&](const urdf::LinkNodePtr &l) {
                     if (l != link_node && l->link.name == new_name) duplicate = true;
                 });
                 if (!duplicate) {
@@ -1179,8 +1178,8 @@ void App::drawNodeProperties() {
                 bool open = true;
                 char name_buffer[256];
                 snprintf(name_buffer, 256, "Vis %d##VisTabItem%d", i, i);
-                ImGuiTabItemFlags vis_flags = (pending_tab_ == i)
-                                                   ? ImGuiTabItemFlags_SetSelected : 0;
+                ImGuiTabItemFlags vis_flags =
+                    (pending_tab_ == i) ? ImGuiTabItemFlags_SetSelected : 0;
                 if (ImGui::BeginTabItem(name_buffer, &open, vis_flags)) {
                     urdf::Visual &vis = link_node->link.visual[i];
                     if (vis.origin.has_value()) {
@@ -1204,8 +1203,8 @@ void App::drawNodeProperties() {
                 bool open = true;
                 char name_buffer[256];
                 snprintf(name_buffer, 256, "Col %d##ColTabItem%d", i, i);
-                ImGuiTabItemFlags col_flags = (pending_tab_ == num_visuals + i)
-                                                   ? ImGuiTabItemFlags_SetSelected : 0;
+                ImGuiTabItemFlags col_flags =
+                    (pending_tab_ == num_visuals + i) ? ImGuiTabItemFlags_SetSelected : 0;
                 if (ImGui::BeginTabItem(name_buffer, &open, col_flags)) {
                     menuPropertiesCollisions(link_node, i);
                     ImGui::EndTabItem();
@@ -1256,8 +1255,7 @@ void App::drawNodeProperties() {
                 min_val = -PI;
                 max_val = PI;
             }
-            if (joint_node->joint.limit &&
-                joint_node->joint.type != urdf::Joint::kContinuous) {
+            if (joint_node->joint.limit && joint_node->joint.type != urdf::Joint::kContinuous) {
                 min_val = joint_node->joint.limit->lower;
                 max_val = joint_node->joint.limit->upper;
             }
@@ -1332,8 +1330,7 @@ void App::menuOrigin(std::optional<urdf::Origin> &origin) {
     }
 }
 
-void App::menuMaterial(std::optional<std::string> &material_name,
-                       const urdf::LinkNodePtr &link) {
+void App::menuMaterial(std::optional<std::string> &material_name, const urdf::LinkNodePtr &link) {
     if (!robot_) return;
 
     const auto &materials = robot_->getMaterials();
@@ -1356,11 +1353,12 @@ void App::menuMaterial(std::optional<std::string> &material_name,
 
     auto post = [this, link]() { robot_->updateMaterial(link); };
 
-    if (ImGui::Combo("Material", &current,
-                      [](void *data, int idx) -> const char * {
-                          return (*static_cast<std::vector<std::string> *>(data))[idx].c_str();
-                      },
-                      &names, static_cast<int>(names.size()))) {
+    if (ImGui::Combo(
+            "Material", &current,
+            [](void *data, int idx) -> const char * {
+                return (*static_cast<std::vector<std::string> *>(data))[idx].c_str();
+            },
+            &names, static_cast<int>(names.size()))) {
         auto old_val = material_name;
         if (current == 0) {
             material_name = std::nullopt;
@@ -1368,9 +1366,8 @@ void App::menuMaterial(std::optional<std::string> &material_name,
             material_name = names[current];
         }
         robot_->updateMaterial(link);
-        command_buffer_.add(
-            std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
-                material_name, old_val, material_name, post));
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<std::optional<std::string>>>(
+            material_name, old_val, material_name, post));
     }
 }
 
@@ -1499,8 +1496,7 @@ void App::menuSafetyController(std::optional<urdf::SafetyController> &safety_con
         }
     } else {
         if (ImGui::Button("Create safety controller")) {
-            command_buffer_.add(
-                std::make_shared<CreateSafetyControllerCommand>(safety_controller));
+            command_buffer_.add(std::make_shared<CreateSafetyControllerCommand>(safety_controller));
         }
     }
 }
@@ -1715,15 +1711,15 @@ void App::inputColorEdit4Undoable(const char *label, Vector4 &color,
     }
     if (ImGui::IsItemActivated()) snapshot_vec4_ = color;
     if (ImGui::IsItemDeactivatedAfterEdit() && snapshot_vec4_) {
-        command_buffer_.add(std::make_shared<UpdatePropertyCommand<Vector4>>(
-            color, *snapshot_vec4_, color, post_action));
+        command_buffer_.add(std::make_shared<UpdatePropertyCommand<Vector4>>(color, *snapshot_vec4_,
+                                                                             color, post_action));
         snapshot_vec4_.reset();
     }
 }
 
 void App::updateLinksUsingMaterial(const std::string &material_name) {
     robot_->forEveryLink([&](const urdf::LinkNodePtr &link) {
-        for (const auto& vis : link->link.visual) {
+        for (const auto &vis : link->link.visual) {
             if (vis.material_name && *vis.material_name == material_name) {
                 robot_->updateMaterial(link);
                 break;
@@ -1746,7 +1742,7 @@ void App::drawValidationPanel() {
         if (validation_results_.empty()) {
             ImGui::TextColored(ImVec4(0.2f, 1.0f, 0.2f, 1.0f), "No issues found.");
         } else {
-            for (const auto& msg : validation_results_) {
+            for (const auto &msg : validation_results_) {
                 drawValidationMessage(msg);
             }
         }
@@ -1759,7 +1755,7 @@ void App::drawMaterialEditor() {
 
     if (!ImGui::CollapsingHeader("Materials", ImGuiTreeNodeFlags_DefaultOpen)) return;
 
-    auto& materials = robot_->getMutableMaterials();
+    auto &materials = robot_->getMutableMaterials();
 
     if (ImGui::Button("+ New Material")) {
         int idx = 0;
@@ -1778,12 +1774,12 @@ void App::drawMaterialEditor() {
     // Snapshot keys to iterate safely (commands may modify the map)
     std::vector<std::string> keys;
     keys.reserve(materials.size());
-    for (const auto& [k, _] : materials) keys.push_back(k);
+    for (const auto &[k, _] : materials) keys.push_back(k);
 
-    for (const auto& key : keys) {
+    for (const auto &key : keys) {
         auto it = materials.find(key);
         if (it == materials.end()) continue;
-        urdf::Material& mat = it->second;
+        urdf::Material &mat = it->second;
 
         ImGui::PushID(key.c_str());
 
@@ -1883,8 +1879,8 @@ void App::drawMaterialEditor() {
 
             // --- Used by
             std::vector<std::string> used_by;
-            robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
-                for (const auto& vis : link->link.visual) {
+            robot_->forEveryLink([&](const urdf::LinkNodePtr &link) {
+                for (const auto &vis : link->link.visual) {
                     if (vis.material_name && *vis.material_name == key) {
                         used_by.push_back(link->link.name);
                         break;

@@ -1,10 +1,10 @@
 #include <assimp/postprocess.h>
 #include <external/par_shapes.h>
 #include <import_mesh.h>
+#include <raymath.h>
 
 #include <assimp/Importer.hpp>
 #include <loguru.hpp>
-#include <raymath.h>
 
 ::Mesh GenMeshCenteredCylinder(float radius, float height, int slices) {
     ::Mesh mesh = {0};

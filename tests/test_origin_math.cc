@@ -46,12 +46,8 @@ TEST_CASE("PosFromMatrix extracts position") {
 
 TEST_CASE("RPY round-trip through matrix") {
     Vector3 cases[] = {
-        {0.1f, 0.2f, 0.3f},
-        {-0.5f, 0.3f, 0.7f},
-        {0.0f, 0.0f, 1.0f},
-        {1.0f, 0.0f, 0.0f},
-        {0.0f, 0.5f, 0.0f},
-        {-0.3f, -0.2f, -0.1f},
+        {0.1f, 0.2f, 0.3f}, {-0.5f, 0.3f, 0.7f}, {0.0f, 0.0f, 1.0f},
+        {1.0f, 0.0f, 0.0f}, {0.0f, 0.5f, 0.0f},  {-0.3f, -0.2f, -0.1f},
     };
 
     for (const auto& rpy : cases) {
@@ -118,8 +114,7 @@ TEST_CASE("Forward kinematics preserves root mesh scale") {
     root->visual_models.push_back(Model{});
 
     urdf::Collision collision;
-    collision.origin =
-        urdf::Origin(Vector3{-0.25f, -0.5f, -0.75f}, Vector3{0.0f, PI / 2.0f, 0.0f});
+    collision.origin = urdf::Origin(Vector3{-0.25f, -0.5f, -0.75f}, Vector3{0.0f, PI / 2.0f, 0.0f});
     collision.geometry.type =
         std::make_shared<urdf::Mesh>("collision.stl", "", Vector3{5.0f, 6.0f, 7.0f});
     root->link.collision.push_back(collision);
@@ -145,9 +140,8 @@ TEST_CASE("Forward kinematics preserves root mesh scale") {
           doctest::Approx(5.0f));
     CHECK(Vector3Length({collision_transform.m4, collision_transform.m5, collision_transform.m6}) ==
           doctest::Approx(6.0f));
-    CHECK(Vector3Length(
-              {collision_transform.m8, collision_transform.m9, collision_transform.m10}) ==
-          doctest::Approx(7.0f));
+    CHECK(Vector3Length({collision_transform.m8, collision_transform.m9,
+                         collision_transform.m10}) == doctest::Approx(7.0f));
     CHECK(collision_transform.m12 == doctest::Approx(0.75f));
     CHECK(collision_transform.m13 == doctest::Approx(1.5f));
     CHECK(collision_transform.m14 == doctest::Approx(2.25f));
@@ -159,24 +153,22 @@ TEST_CASE("Forward kinematics keeps Diablo wheel assemblies on correct sides") {
     auto left_motor = std::make_shared<urdf::LinkNode>(urdf::Link("left_motor"), nullptr);
     auto left_j4 = std::make_shared<urdf::JointNode>(
         urdf::Joint("left_j4", "base_link", "left_motor", "continuous"), root, left_motor);
-    left_j4->joint.origin = urdf::Origin(Vector3{0.0f, 0.18755f, 0.0f},
-                                         Vector3{1.5708f, 0.13433f, -3.1416f});
+    left_j4->joint.origin =
+        urdf::Origin(Vector3{0.0f, 0.18755f, 0.0f}, Vector3{1.5708f, 0.13433f, -3.1416f});
     left_motor->parent = left_j4;
     root->children.push_back(left_j4);
 
     auto left_leg1 = std::make_shared<urdf::LinkNode>(urdf::Link("left_leg1"), nullptr);
     auto left_j1 = std::make_shared<urdf::JointNode>(
         urdf::Joint("left_j1", "left_motor", "left_leg1", "continuous"), left_motor, left_leg1);
-    left_j1->joint.origin =
-        urdf::Origin(Vector3{0.0f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, -2.8729f});
+    left_j1->joint.origin = urdf::Origin(Vector3{0.0f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, -2.8729f});
     left_leg1->parent = left_j1;
     left_motor->children.push_back(left_j1);
 
     auto left_leg2 = std::make_shared<urdf::LinkNode>(urdf::Link("left_leg2"), nullptr);
     auto left_j2 = std::make_shared<urdf::JointNode>(
         urdf::Joint("left_j2", "left_leg1", "left_leg2", "continuous"), left_leg1, left_leg2);
-    left_j2->joint.origin =
-        urdf::Origin(Vector3{0.14f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, 2.8729f});
+    left_j2->joint.origin = urdf::Origin(Vector3{0.14f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, 2.8729f});
     left_leg2->parent = left_j2;
     left_leg1->children.push_back(left_j2);
 
@@ -191,8 +183,8 @@ TEST_CASE("Forward kinematics keeps Diablo wheel assemblies on correct sides") {
     auto right_motor = std::make_shared<urdf::LinkNode>(urdf::Link("right_motor"), nullptr);
     auto right_j4 = std::make_shared<urdf::JointNode>(
         urdf::Joint("right_j4", "base_link", "right_motor", "continuous"), root, right_motor);
-    right_j4->joint.origin = urdf::Origin(Vector3{0.0f, -0.18755f, 0.0f},
-                                          Vector3{1.5708f, 0.13433f, 3.1416f});
+    right_j4->joint.origin =
+        urdf::Origin(Vector3{0.0f, -0.18755f, 0.0f}, Vector3{1.5708f, 0.13433f, 3.1416f});
     right_motor->parent = right_j4;
     root->children.push_back(right_j4);
 
@@ -200,17 +192,14 @@ TEST_CASE("Forward kinematics keeps Diablo wheel assemblies on correct sides") {
     auto right_j1 = std::make_shared<urdf::JointNode>(
         urdf::Joint("right_j1", "right_motor", "right_leg1", "continuous"), right_motor,
         right_leg1);
-    right_j1->joint.origin =
-        urdf::Origin(Vector3{0.0f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, -2.8729f});
+    right_j1->joint.origin = urdf::Origin(Vector3{0.0f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, -2.8729f});
     right_leg1->parent = right_j1;
     right_motor->children.push_back(right_j1);
 
     auto right_leg2 = std::make_shared<urdf::LinkNode>(urdf::Link("right_leg2"), nullptr);
     auto right_j2 = std::make_shared<urdf::JointNode>(
-        urdf::Joint("right_j2", "right_leg1", "right_leg2", "continuous"), right_leg1,
-        right_leg2);
-    right_j2->joint.origin =
-        urdf::Origin(Vector3{0.14f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, 2.8729f});
+        urdf::Joint("right_j2", "right_leg1", "right_leg2", "continuous"), right_leg1, right_leg2);
+    right_j2->joint.origin = urdf::Origin(Vector3{0.14f, 0.0f, 0.0f}, Vector3{0.0f, 0.0f, 2.8729f});
     right_leg2->parent = right_j2;
     right_leg1->children.push_back(right_j2);
 

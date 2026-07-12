@@ -1,6 +1,7 @@
 #include <doctest/doctest.h>
-#include <pugixml.hpp>
 #include <robot.h>
+
+#include <pugixml.hpp>
 
 TEST_CASE("Material round-trip (color)") {
     pugi::xml_document doc;
@@ -443,7 +444,8 @@ TEST_CASE("Multiple visuals per link") {
     urdf::Link link2 = urdf::xmlNodeToLink(out_node);
     REQUIRE(link2.visual.size() == 2);
     CHECK(static_cast<bool>(std::dynamic_pointer_cast<urdf::Box>(link2.visual[0].geometry.type)));
-    CHECK(static_cast<bool>(std::dynamic_pointer_cast<urdf::Sphere>(link2.visual[1].geometry.type)));
+    CHECK(
+        static_cast<bool>(std::dynamic_pointer_cast<urdf::Sphere>(link2.visual[1].geometry.type)));
     REQUIRE(link2.visual[0].material_name.has_value());
     CHECK(*link2.visual[0].material_name == "red");
     REQUIRE(link2.visual[1].material_name.has_value());
