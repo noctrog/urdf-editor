@@ -79,6 +79,9 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Check out the release tag
+        uses: actions/checkout@v6
+
       - name: Download binary packages
         uses: actions/download-artifact@v4
         with:
