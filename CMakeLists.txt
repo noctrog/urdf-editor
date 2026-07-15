@@ -43,6 +43,10 @@ set(ASSIMP_NO_EXPORT ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_COLLADA_IMPORTER ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_STL_IMPORTER ON CACHE BOOL "" FORCE)
+# Assimp 5.4.3 can detect system minizip but still include <unzip.h>,
+# while some distros install it as <minizip/unzip.h>.
+set(ASSIMP_BUILD_MINIZIP ON CACHE BOOL "" FORCE)
+set(UNZIP_FOUND OFF CACHE BOOL "" FORCE)
 FetchContent_Declare(
   assimp
   GIT_REPOSITORY https://github.com/assimp/assimp.git
@@ -69,10 +73,34 @@ target_include_directories(imgui PUBLIC
 
 target_compile_definitions(imgui PUBLIC IMGUI_DEFINE_MATH_OPERATORS)
 
+set(SHADER_DIR "${CMAKE_CURRENT_SOURCE_DIR}/resources/shaders")
+set(SHADER_FILES
+    "${SHADER_DIR}/lighting.vs"
+    "${SHADER_DIR}/lighting.fs"
+    "${SHADER_DIR}/outline.vs"
+    "${SHADER_DIR}/outline.fs"
+)
+
+# Regenerate the embedded header whenever a source shader changes.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${SHADER_FILES})
+file(READ "${SHADER_DIR}/lighting.vs" LIGHTING_VERTEX_SHADER_SOURCE)
+file(READ "${SHADER_DIR}/lighting.fs" LIGHTING_FRAGMENT_SHADER_SOURCE)
+file(READ "${SHADER_DIR}/outline.vs" OUTLINE_VERTEX_SHADER_SOURCE)
+file(READ "${SHADER_DIR}/outline.fs" OUTLINE_FRAGMENT_SHADER_SOURCE)
+configure_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/embedded_shaders.h.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/embedded_shaders.h"
+    @ONLY
+)
+
 file(GLOB SRC_FILES "src/*.cc")
 add_executable(${PROJECT_NAME} ${SRC_FILES})
 
-target_include_directories(${PROJECT_NAME} PRIVATE include ${raylib_SOURCE_DIR}/src/external)
+target_include_directories(${PROJECT_NAME} PRIVATE
+    include
+    ${raylib_SOURCE_DIR}/src/external
+    ${CMAKE_CURRENT_BINARY_DIR}/generated
+)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE raylib imgui pugixml loguru nfd fmt assimp)
 

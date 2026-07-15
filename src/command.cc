@@ -136,7 +136,7 @@ CreateJointCommand::CreateJointCommand(const char* joint_name, urdf::LinkNodePtr
     : joint_name_(joint_name), parent_(parent), robot_(robot) {}
 
 void CreateJointCommand::execute() {
-    // Get number of overlapping link and joint names
+    // Count existing generated names to choose deterministic, human-readable names.
     int new_link_count = 0;
     int new_joint_count = 0;
     std::deque<urdf::LinkNodePtr> deq{robot_->getRoot()};
@@ -154,14 +154,14 @@ void CreateJointCommand::execute() {
         }
     }
 
-    // Rename in case of name collisions
+    // Avoid collisions because URDF link and joint names must be unique.
     if (new_joint_count > 0) joint_name_ += fmt::format(" {}", new_joint_count);
 
     std::string new_link_name =
         (new_link_count == 0) ? "New link" : fmt::format("New link {}", new_link_count);
     urdf::LinkNodePtr child = std::make_shared<urdf::LinkNode>(urdf::Link{new_link_name}, nullptr);
 
-    // Create new joint and link
+    // The joint and link form an inseparable parent-to-child tree edge.
     urdf::JointNodePtr new_joint = std::make_shared<urdf::JointNode>(
         urdf::JointNode{urdf::Joint(joint_name_.c_str(), parent_->link.name.c_str(),
                                     new_link_name.c_str(), "fixed"),
@@ -317,9 +317,8 @@ CreateVisualCommand::CreateVisualCommand(urdf::LinkNodePtr& link, const urdf::Ro
     : link_(link), robot_(robot), shader_(shader) {}
 
 void CreateVisualCommand::execute() {
-    link_->link.visual.push_back(
-        urdf::Visual{std::nullopt, std::nullopt,
-                     urdf::Geometry{std::make_shared<urdf::Box>()}, std::nullopt});
+    link_->link.visual.push_back(urdf::Visual{
+        std::nullopt, std::nullopt, urdf::Geometry{std::make_shared<urdf::Box>()}, std::nullopt});
     Model model = link_->link.visual.back().geometry.type->generateGeometry();
     model.materials[0].shader = shader_;
     link_->visual_models.push_back(model);
@@ -390,7 +389,7 @@ void DeleteMaterialCommand::execute() {
         saved_material_ = it->second;
         materials.erase(it);
     }
-    // Update visuals so affected links fall back to default grey
+    // Refresh affected links so unresolved material references use the fallback.
     robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
         for (const auto& vis : link->link.visual) {
             if (vis.material_name && *vis.material_name == name_) {
@@ -403,7 +402,7 @@ void DeleteMaterialCommand::execute() {
 
 void DeleteMaterialCommand::undo() {
     robot_->getMutableMaterials()[saved_material_.name] = saved_material_;
-    // Restore the material color on affected links
+    // Restore the material appearance on every visual that references it.
     robot_->forEveryLink([&](const urdf::LinkNodePtr& link) {
         for (const auto& vis : link->link.visual) {
             if (vis.material_name && *vis.material_name == name_) {
@@ -467,14 +466,14 @@ void CloneSubtreeCommand::execute() {
     attach_parent_ = source_->parent->parent;
 
     if (cloned_joint_) {
-        // Re-execute (redo): re-insert the previously cloned joint
+        // Redo reuses the already generated subtree and its GPU resources.
         attach_parent_->children.push_back(cloned_joint_);
     } else {
         cloned_joint_ = urdf::cloneSubtree(source_, attach_parent_, robot_);
         if (!cloned_joint_) return;
         attach_parent_->children.push_back(cloned_joint_);
 
-        // Generate geometry for all cloned links
+        // First execution creates models for every cloned node exactly once.
         std::deque<urdf::LinkNodePtr> deq{cloned_joint_->child};
         while (!deq.empty()) {
             auto link = deq.front();
@@ -511,6 +510,7 @@ UpdateGeometryBoxCommand::UpdateGeometryBoxCommand(std::shared_ptr<urdf::Box>& b
     : new_size_(box->size), old_size_(old_size), box_(box), model_(model), shader_(shader) {}
 
 void UpdateGeometryBoxCommand::execute() {
+    // Preserve render-only state while replacing the mesh generated from geometry.
     MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
     const Matrix t = model_.transform;
     box_->size = new_size_;

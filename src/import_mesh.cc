@@ -1,6 +1,7 @@
 #include <assimp/postprocess.h>
 #include <external/par_shapes.h>
 #include <import_mesh.h>
+#include <raymath.h>
 
 #include <assimp/Importer.hpp>
 #include <loguru.hpp>
@@ -9,21 +10,22 @@
     ::Mesh mesh = {0};
 
     if (slices >= 3) {
-        // Create a cylinder along Y-axis
+        // par_shapes creates a unit cylinder along Z; scale it to the requested
+        // radius and height before converting its coordinates for this editor.
         par_shapes_mesh* cylinder = par_shapes_create_cylinder(slices, 8);
         par_shapes_scale(cylinder, radius, radius, height);
 
-        // Translate the cylinder to center it at the origin
+        // Center the side surface so both caps share the geometry origin.
         par_shapes_translate(cylinder, 0, 0, -height / 2.0F);
 
-        // Create top cap
+        // Add a cap at the positive local Z end of the source geometry.
         float center_top[] = {0, 0, height / 2};
         float normal_top[] = {0, 0, 1};
         par_shapes_mesh* cap_top = par_shapes_create_disk(radius, slices, center_top, normal_top);
         cap_top->tcoords = PAR_MALLOC(float, 2 * cap_top->npoints);
         for (int i = 0; i < 2 * cap_top->npoints; i++) cap_top->tcoords[i] = 0.0F;
 
-        // Create bottom cap
+        // Flip and translate the second cap to close the negative end.
         float center_bot[] = {0, 0, 0};
         float normal_bot[] = {0, 0, 1};
         par_shapes_mesh* cap_bottom =
@@ -34,7 +36,7 @@
         cap_bottom->tcoords = PAR_MALLOC(float, 2 * cap_bottom->npoints);
         for (int i = 0; i < 2 * cap_bottom->npoints; i++) cap_bottom->tcoords[i] = 0.95F;
 
-        // Merge cylinder and caps
+        // Merge before allocating raylib buffers so all triangles share one mesh.
         par_shapes_merge_and_free(cylinder, cap_top);
         par_shapes_merge_and_free(cylinder, cap_bottom);
 
@@ -60,7 +62,7 @@
 
         par_shapes_free_mesh(cylinder);
 
-        // Upload vertex data to GPU (static mesh)
+        // Upload once because generated primitive topology does not change in place.
         UploadMesh(&mesh, false);
     } else
         LOG_F(WARNING, "MESH: Failed to generate mesh: cylinder");
@@ -86,12 +88,12 @@ Mesh LoadMeshFromAssimp(const aiMesh* mesh) {
     if (mesh->HasTextureCoords(0)) {
         result.texcoords = (float*)RL_MALLOC(result.vertexCount * 2 * sizeof(float));
         for (unsigned int i = 0; i < mesh->mNumVertices; i++) {
-            result.texcoords[i * 2]     = mesh->mTextureCoords[0][i].x;
+            result.texcoords[i * 2] = mesh->mTextureCoords[0][i].x;
             result.texcoords[i * 2 + 1] = mesh->mTextureCoords[0][i].y;
         }
     }
 
-    // Convert from assimp's unsigned int to raylib's unsigned short
+    // raylib stores mesh indices as 16-bit values, unlike Assimp's 32-bit indices.
     for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
         const aiFace* face = &mesh->mFaces[i];
         for (int j = 0; j < 3; j++) {
@@ -126,6 +128,7 @@ std::vector<Mesh> LoadMeshesFromFile(const std::string& filename) {
 
 Model LoadModelFromFile(const std::string& filename) {
     Model model = {};
+    model.transform = MatrixIdentity();
     std::vector<Mesh> meshes = LoadMeshesFromFile(filename);
     model.meshCount = meshes.size();
     model.meshes = (Mesh*)RL_MALLOC(model.meshCount * sizeof(Mesh));
@@ -138,7 +141,7 @@ Model LoadModelFromFile(const std::string& filename) {
     model.materials = (Material*)RL_MALLOC(sizeof(Material));
     model.materials[0] = LoadMaterialDefault();
 
-    // Assign default material to all meshes
+    // Every imported submesh initially uses the one default material slot.
     model.meshMaterial = (int*)RL_MALLOC(model.meshCount * sizeof(int));
     for (int i = 0; i < model.meshCount; i++) {
         model.meshMaterial[i] = 0;

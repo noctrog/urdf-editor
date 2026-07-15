@@ -224,7 +224,7 @@ TEST_CASE("Link with visual and collision") {
     CHECK(*link.visual[0].material_name == "blue");
 
     auto box = std::dynamic_pointer_cast<urdf::Box>(link.visual[0].geometry.type);
-    REQUIRE(box);
+    REQUIRE(static_cast<bool>(box));
     CHECK(box->size.x == doctest::Approx(1.0f));
     CHECK(box->size.y == doctest::Approx(2.0f));
     CHECK(box->size.z == doctest::Approx(3.0f));
@@ -429,7 +429,7 @@ TEST_CASE("Mesh scale round-trip") {
     urdf::Geometry geom = urdf::xmlNodeToGeometry(doc.first_child());
 
     auto mesh = std::dynamic_pointer_cast<urdf::Mesh>(geom.type);
-    REQUIRE(mesh);
+    REQUIRE(static_cast<bool>(mesh));
     CHECK(mesh->filename == "robot.stl");
     CHECK(mesh->scale.x == doctest::Approx(2.0f));
     CHECK(mesh->scale.y == doctest::Approx(3.0f));
@@ -442,7 +442,7 @@ TEST_CASE("Mesh scale round-trip") {
 
     urdf::Geometry geom2 = urdf::xmlNodeToGeometry(out_node);
     auto mesh2 = std::dynamic_pointer_cast<urdf::Mesh>(geom2.type);
-    REQUIRE(mesh2);
+    REQUIRE(static_cast<bool>(mesh2));
     CHECK(mesh2->scale.x == doctest::Approx(2.0f));
     CHECK(mesh2->scale.y == doctest::Approx(3.0f));
     CHECK(mesh2->scale.z == doctest::Approx(4.0f));
@@ -482,13 +482,13 @@ TEST_CASE("Multiple visuals per link") {
     REQUIRE(link.visual.size() == 2);
 
     auto box = std::dynamic_pointer_cast<urdf::Box>(link.visual[0].geometry.type);
-    REQUIRE(box);
+    REQUIRE(static_cast<bool>(box));
     CHECK(box->size.x == doctest::Approx(1.0f));
     REQUIRE(link.visual[0].material_name.has_value());
     CHECK(*link.visual[0].material_name == "red");
 
     auto sphere = std::dynamic_pointer_cast<urdf::Sphere>(link.visual[1].geometry.type);
-    REQUIRE(sphere);
+    REQUIRE(static_cast<bool>(sphere));
     CHECK(sphere->radius == doctest::Approx(0.5f));
     REQUIRE(link.visual[1].origin.has_value());
     CHECK(link.visual[1].origin->xyz.z == doctest::Approx(1.0f));
@@ -502,8 +502,9 @@ TEST_CASE("Multiple visuals per link") {
 
     urdf::Link link2 = urdf::xmlNodeToLink(out_node);
     REQUIRE(link2.visual.size() == 2);
-    CHECK(std::dynamic_pointer_cast<urdf::Box>(link2.visual[0].geometry.type));
-    CHECK(std::dynamic_pointer_cast<urdf::Sphere>(link2.visual[1].geometry.type));
+    CHECK(static_cast<bool>(std::dynamic_pointer_cast<urdf::Box>(link2.visual[0].geometry.type)));
+    CHECK(
+        static_cast<bool>(std::dynamic_pointer_cast<urdf::Sphere>(link2.visual[1].geometry.type)));
     REQUIRE(link2.visual[0].material_name.has_value());
     CHECK(*link2.visual[0].material_name == "red");
     REQUIRE(link2.visual[1].material_name.has_value());

@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Check formatting
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Install clang-format
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes clang-format
+
+      - name: Verify first-party formatting
+        run: |
+          find include src tests -type f \( -name '*.h' -o -name '*.cc' \) \
+            ! -path 'include/imgui_impl_raylib.h' \
+            ! -path 'include/rlImGui.h' \
+            ! -path 'include/rlImGuiColors.h' \
+            ! -path 'include/rlights.h' \
+            ! -path 'src/rlImGui.cc' \
+            ! -path 'src/raygizmo.cc' \
+            -print0 | xargs -0 clang-format --dry-run --Werror
+
+  build-and-test:
+    name: Build and test
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v6
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            build-essential \
+            cmake \
+            ninja-build \
+            pkg-config \
+            libgl1-mesa-dev \
+            libgtk-3-dev \
+            libxi-dev \
+            libxcursor-dev \
+            libxinerama-dev \
+            libxrandr-dev
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run unit tests
+        run: ctest --test-dir build --output-on-failure
