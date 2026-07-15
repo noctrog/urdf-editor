@@ -1629,7 +1629,7 @@ void App::menuGeometry(urdf::Geometry &geometry, Model &model) {
                                 snapshot_string_.reset();
                             }
                         }
-                        auto regen = [&model, &gmesh, this]() {
+                        auto regen = [&model, gmesh, this]() {
                             MaterialMap mat_map = model.materials[0].maps[MATERIAL_MAP_DIFFUSE];
                             const Matrix t = model.transform;
                             UnloadModel(model);

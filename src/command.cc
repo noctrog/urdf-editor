@@ -1,5 +1,6 @@
 #include <command.h>
 #include <fmt/format.h>
+#include <loguru.hpp>
 #include <robot.h>
 
 #include <algorithm>
@@ -18,22 +19,26 @@ void CommandBuffer::add(CommandPtr command) {
 void CommandBuffer::execute() {
     if (new_commands_.empty()) return;
 
-    // A new edit after undo creates a new branch, so the abandoned redo branch
-    // can no longer be reached.
-    if (current_command_ < executed_commands_.size()) {
-        executed_commands_.erase(executed_commands_.begin() + current_command_,
-                                 executed_commands_.end());
-        // A save point in the abandoned branch is unreachable; treat the branch
-        // point as the best available saved state.
-        if (save_point_ > current_command_) save_point_ = current_command_;
-    }
+    std::vector<CommandPtr> applied_commands;
+    applied_commands.reserve(new_commands_.size());
 
     for (const auto& command : new_commands_) {
         command->execute();
-        executed_commands_.push_back(command);
+        if (command->wasApplied()) applied_commands.push_back(command);
     }
 
-    current_command_ = executed_commands_.size();
+    if (!applied_commands.empty()) {
+        if (current_command_ < executed_commands_.size()) {
+            executed_commands_.erase(executed_commands_.begin() + current_command_,
+                                     executed_commands_.end());
+            if (save_point_ > current_command_) save_point_ = current_command_;
+        }
+
+        executed_commands_.insert(executed_commands_.end(), applied_commands.begin(),
+                                  applied_commands.end());
+        current_command_ = executed_commands_.size();
+    }
+
     new_commands_.clear();
 }
 
@@ -48,7 +53,7 @@ void CommandBuffer::redo() {
     if (current_command_ == executed_commands_.size()) return;
 
     executed_commands_[current_command_]->execute();
-    current_command_++;
+    if (executed_commands_[current_command_]->wasApplied()) current_command_++;
 }
 
 bool CommandBuffer::canUndo() const { return current_command_ > 0; }
@@ -620,33 +625,82 @@ UpdateGeometryMeshCommand::UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>
       model_(model),
       shader_(shader) {}
 
-void UpdateGeometryMeshCommand::execute() {
-    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
-    const Matrix t = model_.transform;
-    mesh_->filename = new_filename_;
-    mesh_->resolved_path = new_filename_;
+UpdateGeometryMeshCommand::~UpdateGeometryMeshCommand() { UnloadModel(cached_model_); }
 
-    UnloadModel(model_);
-    model_ = Model{};
-    if (std::filesystem::exists(mesh_->resolved_path)) {
-        model_ = mesh_->generateGeometry();
+bool UpdateGeometryMeshCommand::replaceModel(const std::string& filename,
+                                             const std::string& resolved_path) {
+    if (!std::filesystem::exists(resolved_path)) {
+        LOG_F(WARNING, "Mesh file does not exist: %s", resolved_path.c_str());
+        return false;
     }
 
-    model_.materials[0].shader = shader_;
-    model_.transform = t;
-    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+    urdf::Mesh replacement_mesh(filename.c_str(), resolved_path, mesh_->scale);
+    Model replacement = replacement_mesh.generateGeometry();
+
+    bool has_geometry = false;
+    if (replacement.meshes != nullptr) {
+        for (int i = 0; i < replacement.meshCount; ++i) {
+            if (replacement.meshes[i].vertexCount > 0) {
+                has_geometry = true;
+                break;
+            }
+        }
+    }
+    const bool has_material = replacement.materialCount > 0 && replacement.materials != nullptr &&
+                              replacement.materials[0].maps != nullptr;
+    if (!has_geometry || !has_material) {
+        LOG_F(WARNING, "Mesh file could not be loaded: %s", resolved_path.c_str());
+        UnloadModel(replacement);
+        return false;
+    }
+
+    const Matrix transform = model_.transform;
+    MaterialMap diffuse = replacement.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    if (model_.materialCount > 0 && model_.materials != nullptr &&
+        model_.materials[0].maps != nullptr) {
+        diffuse = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
+    }
+
+    replacement.materials[0].shader = shader_;
+    replacement.transform = transform;
+    replacement.materials[0].maps[MATERIAL_MAP_DIFFUSE] = diffuse;
+
+    std::swap(model_, replacement);
+    cached_model_ = replacement;
+    has_cached_model_ = true;
+    mesh_->filename = filename;
+    mesh_->resolved_path = resolved_path;
+    return true;
+}
+
+void UpdateGeometryMeshCommand::execute() {
+    if (applied_) return;
+
+    if (has_cached_model_) {
+        std::swap(model_, cached_model_);
+        mesh_->filename = new_filename_;
+        mesh_->resolved_path = new_resolved_path_;
+        applied_ = true;
+        return;
+    }
+
+    std::string resolved_path = new_filename_;
+    constexpr const char* package_prefix = "package://";
+    if (new_filename_.rfind(package_prefix, 0) == 0) {
+        const auto old_mesh_dir = std::filesystem::path(old_resolved_path_).parent_path();
+        resolved_path = urdf::resolveFilePath(new_filename_, old_mesh_dir.string());
+    }
+    if (replaceModel(new_filename_, resolved_path)) {
+        new_resolved_path_ = resolved_path;
+        applied_ = true;
+    }
 }
 
 void UpdateGeometryMeshCommand::undo() {
-    MaterialMap mat_map = model_.materials[0].maps[MATERIAL_MAP_DIFFUSE];
-    const Matrix t = model_.transform;
+    if (!applied_ || !has_cached_model_) return;
+
+    std::swap(model_, cached_model_);
     mesh_->filename = old_filename_;
     mesh_->resolved_path = old_resolved_path_;
-
-    UnloadModel(model_);
-    model_ = mesh_->generateGeometry();
-
-    model_.materials[0].shader = shader_;
-    model_.transform = t;
-    model_.materials[0].maps[MATERIAL_MAP_DIFFUSE] = mat_map;
+    applied_ = false;
 }

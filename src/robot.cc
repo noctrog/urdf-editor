@@ -8,6 +8,7 @@
 
 #include <cfloat>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <filesystem>
@@ -62,14 +63,18 @@ std::string resolveFilePath(const std::string& mesh_filename, const std::string&
     if (mesh_filename.rfind(package_prefix, 0) == 0) {
         std::string remainder = mesh_filename.substr(package_prefix.size());
         auto slash_pos = remainder.find('/');
+        std::string package_name = remainder.substr(0, slash_pos);
         std::string relative_path =
             (slash_pos != std::string::npos) ? remainder.substr(slash_pos + 1) : "";
 
-        // The package name is not needed: package.xml identifies the package
-        // root, and the remainder is relative to that root.
+        auto is_requested_package = [&package_name](const fs::path& dir) {
+            pugi::xml_document manifest;
+            if (!manifest.load_file((dir / "package.xml").c_str())) return false;
+            return package_name == manifest.child("package").child("name").text().as_string();
+        };
         fs::path dir = urdf_dir;
         while (!dir.empty()) {
-            if (fs::exists(dir / "package.xml")) {
+            if (is_requested_package(dir)) {
                 return (dir / relative_path).string();
             }
             fs::path parent = dir.parent_path();
@@ -77,8 +82,52 @@ std::string resolveFilePath(const std::string& mesh_filename, const std::string&
             dir = parent;
         }
 
-        LOG_F(WARNING, "Could not find package.xml for '%s', treating as relative to URDF dir",
-              mesh_filename.c_str());
+        auto find_package_in_tree = [&is_requested_package](const fs::path& root) {
+            if (!fs::is_directory(root)) return fs::path{};
+
+            std::vector<fs::path> pending{root};
+            while (!pending.empty()) {
+                fs::path dir = std::move(pending.back());
+                pending.pop_back();
+
+                if (fs::exists(dir / "package.xml")) {
+                    if (is_requested_package(dir)) return dir;
+
+                    continue;
+                }
+
+                std::error_code error;
+                for (fs::directory_iterator it(
+                         dir, fs::directory_options::skip_permission_denied, error),
+                     end;
+                     it != end; it.increment(error)) {
+                    if (error) break;
+                    if (it->is_directory(error) && !error) pending.push_back(it->path());
+                    error.clear();
+                }
+            }
+            return fs::path{};
+        };
+
+        const char* ros_package_path = std::getenv("ROS_PACKAGE_PATH");
+        if (ros_package_path) {
+            std::stringstream paths(ros_package_path);
+            std::string entry;
+            while (std::getline(paths, entry, ':')) {
+                if (entry.empty()) continue;
+
+                fs::path root(entry);
+                fs::path package_root = find_package_in_tree(root);
+                if (!package_root.empty()) {
+                    return (package_root / relative_path).string();
+                }
+            }
+        }
+
+        LOG_F(WARNING,
+              "Could not find package '%s' for '%s'; treating the path as relative to the "
+              "URDF directory",
+              package_name.c_str(), mesh_filename.c_str());
         return (fs::path(urdf_dir) / relative_path).string();
     }
 

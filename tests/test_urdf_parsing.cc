@@ -1,7 +1,66 @@
 #include <doctest/doctest.h>
+#include <pugixml.hpp>
 #include <robot.h>
 
-#include <pugixml.hpp>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
+
+TEST_CASE("package URI resolves the named package from ROS_PACKAGE_PATH") {
+    namespace fs = std::filesystem;
+
+    fs::path root = fs::temp_directory_path() / "urdf_editor_package_path_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "source_package/urdf");
+    fs::create_directories(root / "mesh_package/meshes");
+    std::ofstream(root / "source_package/package.xml")
+        << "<package><name>source_package</name></package>";
+    std::ofstream(root / "mesh_package/package.xml")
+        << "<package><name>mesh_package</name></package>";
+
+    const char* old_path_value = std::getenv("ROS_PACKAGE_PATH");
+    const bool had_old_path = old_path_value != nullptr;
+    const std::string old_path = old_path_value ? old_path_value : "";
+    const std::string package_path = (root / "mesh_package").string();
+    setenv("ROS_PACKAGE_PATH", package_path.c_str(), 1);
+
+    std::string resolved = urdf::resolveFilePath(
+        "package://mesh_package/meshes/part.dae", (root / "source_package/urdf").string());
+
+    if (had_old_path)
+        setenv("ROS_PACKAGE_PATH", old_path.c_str(), 1);
+    else
+        unsetenv("ROS_PACKAGE_PATH");
+    fs::remove_all(root);
+
+    CHECK(resolved == (root / "mesh_package/meshes/part.dae").string());
+}
+
+TEST_CASE("package URI finds nested packages in ROS_PACKAGE_PATH") {
+    namespace fs = std::filesystem;
+
+    fs::path root = fs::temp_directory_path() / "urdf_editor_nested_package_path_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "vendor/mesh_package/meshes");
+    std::ofstream(root / "vendor/mesh_package/package.xml")
+        << "<package><name>mesh_package</name></package>";
+
+    const char* old_path_value = std::getenv("ROS_PACKAGE_PATH");
+    const bool had_old_path = old_path_value != nullptr;
+    const std::string old_path = old_path_value ? old_path_value : "";
+    setenv("ROS_PACKAGE_PATH", root.c_str(), 1);
+
+    std::string resolved = urdf::resolveFilePath(
+        "package://mesh_package/meshes/part.dae", (root / "urdf").string());
+
+    if (had_old_path)
+        setenv("ROS_PACKAGE_PATH", old_path.c_str(), 1);
+    else
+        unsetenv("ROS_PACKAGE_PATH");
+    fs::remove_all(root);
+
+    CHECK(resolved == (root / "vendor/mesh_package/meshes/part.dae").string());
+}
 
 TEST_CASE("Material round-trip (color)") {
     pugi::xml_document doc;

@@ -125,6 +125,7 @@ if(BUILD_TESTING)
         tests/test_delete_joint.cc
         tests/test_compute_inertia.cc
         tests/test_transmission.cc
+        tests/test_update_geometry_mesh.cc
         src/robot.cc
         src/import_mesh.cc
         src/command.cc
