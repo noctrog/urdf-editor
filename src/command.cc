@@ -19,20 +19,26 @@ void CommandBuffer::add(CommandPtr command) {
 void CommandBuffer::execute() {
     if (new_commands_.empty()) return;
 
-    // Discard any commands after the current position (happens after undo)
-    if (current_command_ < executed_commands_.size()) {
-        executed_commands_.erase(executed_commands_.begin() + current_command_,
-                                 executed_commands_.end());
-        // If the save point was in the erased range, the saved state is unreachable
-        if (save_point_ > current_command_) save_point_ = current_command_;
-    }
+    std::vector<CommandPtr> applied_commands;
+    applied_commands.reserve(new_commands_.size());
 
     for (const auto& command : new_commands_) {
         command->execute();
-        executed_commands_.push_back(command);
+        if (command->wasApplied()) applied_commands.push_back(command);
     }
 
-    current_command_ = executed_commands_.size();
+    if (!applied_commands.empty()) {
+        if (current_command_ < executed_commands_.size()) {
+            executed_commands_.erase(executed_commands_.begin() + current_command_,
+                                     executed_commands_.end());
+            if (save_point_ > current_command_) save_point_ = current_command_;
+        }
+
+        executed_commands_.insert(executed_commands_.end(), applied_commands.begin(),
+                                  applied_commands.end());
+        current_command_ = executed_commands_.size();
+    }
+
     new_commands_.clear();
 }
 
@@ -47,7 +53,7 @@ void CommandBuffer::redo() {
     if (current_command_ == executed_commands_.size()) return;
 
     executed_commands_[current_command_]->execute();
-    current_command_++;
+    if (executed_commands_[current_command_]->wasApplied()) current_command_++;
 }
 
 bool CommandBuffer::canUndo() const { return current_command_ > 0; }
@@ -619,6 +625,8 @@ UpdateGeometryMeshCommand::UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>
       model_(model),
       shader_(shader) {}
 
+UpdateGeometryMeshCommand::~UpdateGeometryMeshCommand() { UnloadModel(cached_model_); }
+
 bool UpdateGeometryMeshCommand::replaceModel(const std::string& filename,
                                              const std::string& resolved_path) {
     if (!std::filesystem::exists(resolved_path)) {
@@ -657,25 +665,42 @@ bool UpdateGeometryMeshCommand::replaceModel(const std::string& filename,
     replacement.transform = transform;
     replacement.materials[0].maps[MATERIAL_MAP_DIFFUSE] = diffuse;
 
-    UnloadModel(model_);
-    model_ = replacement;
+    std::swap(model_, replacement);
+    cached_model_ = replacement;
+    has_cached_model_ = true;
     mesh_->filename = filename;
     mesh_->resolved_path = resolved_path;
     return true;
 }
 
 void UpdateGeometryMeshCommand::execute() {
+    if (applied_) return;
+
+    if (has_cached_model_) {
+        std::swap(model_, cached_model_);
+        mesh_->filename = new_filename_;
+        mesh_->resolved_path = new_resolved_path_;
+        applied_ = true;
+        return;
+    }
+
     std::string resolved_path = new_filename_;
     constexpr const char* package_prefix = "package://";
     if (new_filename_.rfind(package_prefix, 0) == 0) {
         const auto old_mesh_dir = std::filesystem::path(old_resolved_path_).parent_path();
         resolved_path = urdf::resolveFilePath(new_filename_, old_mesh_dir.string());
     }
-    applied_ = replaceModel(new_filename_, resolved_path);
+    if (replaceModel(new_filename_, resolved_path)) {
+        new_resolved_path_ = resolved_path;
+        applied_ = true;
+    }
 }
 
 void UpdateGeometryMeshCommand::undo() {
-    if (!applied_) return;
+    if (!applied_ || !has_cached_model_) return;
 
-    replaceModel(old_filename_, old_resolved_path_);
+    std::swap(model_, cached_model_);
+    mesh_->filename = old_filename_;
+    mesh_->resolved_path = old_resolved_path_;
+    applied_ = false;
 }

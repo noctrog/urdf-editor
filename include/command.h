@@ -11,6 +11,7 @@ class Command {
     virtual ~Command() = default;
     virtual void execute() = 0;
     virtual void undo() = 0;
+    virtual bool wasApplied() const { return true; }
 };
 
 using CommandPtr = std::shared_ptr<Command>;
@@ -411,17 +412,22 @@ class UpdateGeometryMeshCommand : public Command {
    public:
     UpdateGeometryMeshCommand(std::shared_ptr<urdf::Mesh>& mesh, const std::string& new_filename,
                               Model& model, const Shader& shader);
+    ~UpdateGeometryMeshCommand() override;
     void execute() override;
     void undo() override;
+    bool wasApplied() const override { return applied_; }
 
    private:
     bool replaceModel(const std::string& filename, const std::string& resolved_path);
 
     std::string new_filename_;
+    std::string new_resolved_path_;
     std::string old_filename_;
     std::string old_resolved_path_;
     std::shared_ptr<urdf::Mesh> mesh_;
     Model& model_;
     const Shader& shader_;
+    Model cached_model_{};
+    bool has_cached_model_ = false;
     bool applied_ = false;
 };

@@ -1631,9 +1631,6 @@ void App::menuGeometry(urdf::Geometry &geometry, Model &model) {
                                 snapshot_string_.reset();
                             }
                         }
-                        // The callback is queued in CommandBuffer and runs on the next frame.
-                        // Keep the mesh alive instead of capturing this local shared_ptr by
-                        // reference.
                         auto regen = [&model, gmesh, this]() {
                             MaterialMap mat_map = model.materials[0].maps[MATERIAL_MAP_DIFFUSE];
                             const Matrix t = model.transform;
